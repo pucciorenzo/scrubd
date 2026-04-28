@@ -11,7 +11,7 @@ func TestDetectOrphanVeth(t *testing.T) {
 	input := Input{
 		Host: inspect.Inventory{NetworkInterfaces: []inspect.NetworkInterface{
 			{Name: "lo", Index: 1, Kind: "unknown"},
-			{Name: "vethscrubd0", Index: 2, Kind: "veth"},
+			{Name: "vethscrubd0", Index: 2, PeerIndex: 99, Kind: "veth"},
 		}},
 		Runtimes: []runtimeinv.Inventory{{Runtime: runtimeinv.NameDocker, Available: true}},
 	}
@@ -25,6 +25,23 @@ func TestDetectOrphanVeth(t *testing.T) {
 	}
 	if len(leaks[0].CleanupPlan) != 1 || leaks[0].CleanupPlan[0].Command[0] != "ip" {
 		t.Fatalf("missing cleanup plan: %#v", leaks[0].CleanupPlan)
+	}
+	if !hasEvidence(leaks[0], "peer interface index: 99 not visible on host") {
+		t.Fatalf("evidence = %#v, want missing peer evidence", leaks[0].Evidence)
+	}
+}
+
+func TestDetectOrphanVethSkipsVisiblePeerPair(t *testing.T) {
+	input := Input{
+		Host: inspect.Inventory{NetworkInterfaces: []inspect.NetworkInterface{
+			{Name: "veth-a", Index: 2, PeerIndex: 3, Kind: "veth"},
+			{Name: "veth-b", Index: 3, PeerIndex: 2, Kind: "veth"},
+		}},
+		Runtimes: []runtimeinv.Inventory{{Runtime: runtimeinv.NameDocker, Available: true}},
+	}
+
+	if leaks := DetectOrphanVeth(input); len(leaks) != 0 {
+		t.Fatalf("len(leaks) = %d, want 0 for visible veth peer pair: %#v", len(leaks), leaks)
 	}
 }
 

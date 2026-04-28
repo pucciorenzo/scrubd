@@ -13,6 +13,7 @@ type Inventory struct {
 type NetworkInterface struct {
 	Name         string   `json:"name"`
 	Index        int      `json:"index"`
+	PeerIndex    int      `json:"peer_index,omitempty"`
 	HardwareAddr string   `json:"hardware_addr,omitempty"`
 	Flags        []string `json:"flags,omitempty"`
 	Kind         string   `json:"kind,omitempty"`
@@ -58,6 +59,7 @@ type Process struct {
 }
 
 type Paths struct {
+	NetClassDir           string
 	NetNSDir              string
 	ProcDir               string
 	MountInfo             string
@@ -69,6 +71,7 @@ type Paths struct {
 
 func DefaultPaths() Paths {
 	return Paths{
+		NetClassDir:           "/sys/class/net",
 		NetNSDir:              "/var/run/netns",
 		ProcDir:               "/proc",
 		MountInfo:             "/proc/self/mountinfo",
