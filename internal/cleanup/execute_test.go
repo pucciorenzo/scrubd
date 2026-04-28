@@ -75,6 +75,22 @@ func TestExecuteForceRunsStep(t *testing.T) {
 	}
 }
 
+func TestExecuteReportsFailedStep(t *testing.T) {
+	var buf bytes.Buffer
+	steps := []Step{{Description: "delete veth", Command: []string{"ip", "link", "delete", "veth0"}, Destructive: true}}
+
+	results, err := Execute(&buf, steps, Options{Force: true, Runner: failingRunner{err: errors.New("boom")}})
+	if err == nil {
+		t.Fatal("Execute returned nil error")
+	}
+	if len(results) != 1 || results[0].Executed || results[0].Error != "boom" {
+		t.Fatalf("unexpected results: %#v", results)
+	}
+	if got := buf.String(); !contains(got, "status: failed: boom") {
+		t.Fatalf("output missing failed status:\n%s", got)
+	}
+}
+
 func TestExecuteRejectsInvalidStep(t *testing.T) {
 	_, err := Execute(&bytes.Buffer{}, []Step{{Description: "bad"}}, Options{})
 	if err == nil {
@@ -99,9 +115,14 @@ func (r *recordingRunner) Run(command []string) error {
 	return nil
 }
 
-type failingRunner struct{}
+type failingRunner struct {
+	err error
+}
 
-func (failingRunner) Run([]string) error {
+func (r failingRunner) Run([]string) error {
+	if r.err != nil {
+		return r.err
+	}
 	return errors.New("runner should not execute")
 }
 
