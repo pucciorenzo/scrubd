@@ -45,6 +45,26 @@ func TestNewUsesEmptySlices(t *testing.T) {
 	}
 }
 
+func TestNewNormalizesWarnings(t *testing.T) {
+	report := New(runtimeinv.NameAuto, nil, nil, []string{
+		" docker unavailable ",
+		"",
+		"containerd unavailable",
+		"docker unavailable",
+		"  ",
+	})
+
+	want := []string{"docker unavailable", "containerd unavailable"}
+	if len(report.Warnings) != len(want) {
+		t.Fatalf("warnings = %#v, want %#v", report.Warnings, want)
+	}
+	for i := range want {
+		if report.Warnings[i] != want[i] {
+			t.Fatalf("warnings = %#v, want %#v", report.Warnings, want)
+		}
+	}
+}
+
 func TestWriteJSON(t *testing.T) {
 	report := Report{
 		GeneratedAt: time.Unix(0, 0).UTC(),

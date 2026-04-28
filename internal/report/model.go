@@ -1,6 +1,7 @@
 package report
 
 import (
+	"strings"
 	"time"
 
 	"scrubd/internal/detect"
@@ -43,9 +44,30 @@ func New(runtime runtimeinv.Name, runtimes []runtimeinv.Inventory, leaks []detec
 		Runtime:       runtime,
 		Runtimes:      runtimes,
 		Leaks:         leaks,
-		Warnings:      warnings,
+		Warnings:      normalizeWarnings(warnings),
 		Summary:       summarize(runtimes, leaks),
 	}
+}
+
+func normalizeWarnings(warnings []string) []string {
+	if len(warnings) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(warnings))
+	seen := map[string]struct{}{}
+	for _, warning := range warnings {
+		warning = strings.TrimSpace(warning)
+		if warning == "" {
+			continue
+		}
+		if _, ok := seen[warning]; ok {
+			continue
+		}
+		seen[warning] = struct{}{}
+		out = append(out, warning)
+	}
+	return out
 }
 
 func summarize(runtimes []runtimeinv.Inventory, leaks []detect.Leak) Summary {
