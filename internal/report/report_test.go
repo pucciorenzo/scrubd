@@ -23,6 +23,9 @@ func TestNewSummarizesReport(t *testing.T) {
 	}}
 
 	report := New(runtimeinv.NameAuto, runtimes, leaks, []string{"warning"})
+	if report.SchemaVersion != SchemaVersion {
+		t.Fatalf("schema version = %q", report.SchemaVersion)
+	}
 	if report.Summary.LeakCount != 2 || report.Summary.HighCount != 1 || report.Summary.MediumCount != 1 {
 		t.Fatalf("unexpected leak summary: %#v", report.Summary)
 	}
@@ -59,6 +62,9 @@ func TestWriteJSON(t *testing.T) {
 	}
 	if decoded.Runtime != runtimeinv.NameDocker {
 		t.Fatalf("runtime = %q", decoded.Runtime)
+	}
+	if decoded.SchemaVersion != SchemaVersion {
+		t.Fatalf("schema version = %q", decoded.SchemaVersion)
 	}
 }
 

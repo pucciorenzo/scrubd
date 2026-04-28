@@ -7,13 +7,16 @@ import (
 	runtimeinv "scrubd/internal/runtime"
 )
 
+const SchemaVersion = "scrubd.scan.v1"
+
 type Report struct {
-	GeneratedAt time.Time              `json:"generated_at"`
-	Runtime     runtimeinv.Name        `json:"runtime"`
-	Runtimes    []runtimeinv.Inventory `json:"runtimes"`
-	Leaks       []detect.Leak          `json:"leaks"`
-	Warnings    []string               `json:"warnings,omitempty"`
-	Summary     Summary                `json:"summary"`
+	SchemaVersion string                 `json:"schema_version"`
+	GeneratedAt   time.Time              `json:"generated_at"`
+	Runtime       runtimeinv.Name        `json:"runtime"`
+	Runtimes      []runtimeinv.Inventory `json:"runtimes"`
+	Leaks         []detect.Leak          `json:"leaks"`
+	Warnings      []string               `json:"warnings,omitempty"`
+	Summary       Summary                `json:"summary"`
 }
 
 type Summary struct {
@@ -35,12 +38,13 @@ func New(runtime runtimeinv.Name, runtimes []runtimeinv.Inventory, leaks []detec
 		leaks = []detect.Leak{}
 	}
 	return Report{
-		GeneratedAt: time.Now().UTC(),
-		Runtime:     runtime,
-		Runtimes:    runtimes,
-		Leaks:       leaks,
-		Warnings:    warnings,
-		Summary:     summarize(runtimes, leaks),
+		SchemaVersion: SchemaVersion,
+		GeneratedAt:   time.Now().UTC(),
+		Runtime:       runtime,
+		Runtimes:      runtimes,
+		Leaks:         leaks,
+		Warnings:      warnings,
+		Summary:       summarize(runtimes, leaks),
 	}
 }
 

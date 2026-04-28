@@ -14,6 +14,8 @@ import (
 	runtimeinv "scrubd/internal/runtime"
 )
 
+var buildScanReportFunc = buildScanReport
+
 const usageText = `scrubd detects leaked container runtime resources.
 
 Usage:
@@ -92,7 +94,7 @@ func runScan(args []string, stdout io.Writer) error {
 		return commandError{message: fmt.Sprintf("invalid minimum severity %q", *minSeverity), usage: true}
 	}
 
-	scanReport := buildScanReport(runtimeinv.Name(*runtimeName), severity)
+	scanReport := buildScanReportFunc(runtimeinv.Name(*runtimeName), severity)
 
 	if *jsonOutput {
 		return report.WriteJSON(stdout, scanReport)
@@ -104,6 +106,10 @@ func runScan(args []string, stdout io.Writer) error {
 func buildScanReport(runtimeName runtimeinv.Name, minSeverity detect.Severity) report.Report {
 	host := inspect.NewDefaultCollector().Inventory()
 	runtimes := runtimeinv.NewDefaultCollector().Inventories(runtimeName)
+	return buildScanReportFromInventory(runtimeName, minSeverity, host, runtimes)
+}
+
+func buildScanReportFromInventory(runtimeName runtimeinv.Name, minSeverity detect.Severity, host inspect.Inventory, runtimes []runtimeinv.Inventory) report.Report {
 	leaks := detect.Detect(detect.Input{
 		Host:     host,
 		Runtimes: runtimes,
@@ -114,7 +120,30 @@ func buildScanReport(runtimeName runtimeinv.Name, minSeverity detect.Severity) r
 	for _, runtimeInventory := range runtimes {
 		warnings = append(warnings, runtimeInventory.Warnings...)
 	}
+	if !runtimeInventoryAvailable(runtimes) {
+		warnings = append(warnings, "runtime-correlated detections skipped: no container runtime inventory available")
+	} else if runtimeInventoryPartial(runtimes) {
+		warnings = append(warnings, "some runtime inventory unavailable: global orphan checks are skipped and runtime-correlated detections are conservative")
+	}
 	return report.New(runtimeName, runtimes, leaks, warnings)
+}
+
+func runtimeInventoryAvailable(runtimes []runtimeinv.Inventory) bool {
+	for _, runtimeInventory := range runtimes {
+		if runtimeInventory.Available {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeInventoryPartial(runtimes []runtimeinv.Inventory) bool {
+	for _, runtimeInventory := range runtimes {
+		if !runtimeInventory.Available {
+			return true
+		}
+	}
+	return false
 }
 
 func runExplain(args []string, stdout io.Writer) error {
@@ -126,7 +155,7 @@ func runExplain(args []string, stdout io.Writer) error {
 		return commandError{message: fmt.Sprintf("invalid runtime %q", options.runtimeName), usage: true}
 	}
 
-	scanReport := buildScanReport(runtimeinv.Name(options.runtimeName), detect.SeverityLow)
+	scanReport := buildScanReportFunc(runtimeinv.Name(options.runtimeName), detect.SeverityLow)
 	target := findLeak(scanReport.Leaks, options.leakID)
 	if target == nil {
 		return fmt.Errorf("leak %q not found in current scan", options.leakID)
@@ -144,7 +173,7 @@ func runCleanup(args []string, stdout io.Writer) error {
 		return commandError{message: fmt.Sprintf("invalid runtime %q", options.runtimeName), usage: true}
 	}
 
-	scanReport := buildScanReport(runtimeinv.Name(options.runtimeName), detect.SeverityLow)
+	scanReport := buildScanReportFunc(runtimeinv.Name(options.runtimeName), detect.SeverityLow)
 	target := findLeak(scanReport.Leaks, options.leakID)
 	if target == nil {
 		return fmt.Errorf("leak %q not found in current scan", options.leakID)
@@ -163,6 +192,16 @@ func runCleanup(args []string, stdout io.Writer) error {
 
 	if _, err := fmt.Fprintf(stdout, "cleanup %s\nmode: %s\n\n", options.leakID, mode); err != nil {
 		return err
+	}
+	switch {
+	case options.dryRun:
+		if _, err := fmt.Fprint(stdout, "dry-run: no commands will be executed\n\n"); err != nil {
+			return err
+		}
+	case !options.force:
+		if _, err := fmt.Fprint(stdout, "force not set: destructive steps will be skipped\n\n"); err != nil {
+			return err
+		}
 	}
 	_, err = cleanup.Execute(stdout, target.CleanupPlan, cleanup.Options{
 		DryRun: options.dryRun,
