@@ -198,7 +198,7 @@ func runCleanup(args []string, stdout io.Writer) error {
 		if _, err := fmt.Fprint(stdout, "dry-run: no commands will be executed\n\n"); err != nil {
 			return err
 		}
-	case !options.force:
+	case !options.force && cleanupPlanHasDestructive(target.CleanupPlan):
 		if _, err := fmt.Fprint(stdout, "force not set: destructive steps will be skipped\n\n"); err != nil {
 			return err
 		}
@@ -208,6 +208,15 @@ func runCleanup(args []string, stdout io.Writer) error {
 		Force:  options.force,
 	})
 	return err
+}
+
+func cleanupPlanHasDestructive(steps []cleanup.Step) bool {
+	for _, step := range steps {
+		if step.Destructive {
+			return true
+		}
+	}
+	return false
 }
 
 type cleanupArgs struct {
