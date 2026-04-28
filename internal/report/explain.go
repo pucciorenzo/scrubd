@@ -40,6 +40,11 @@ func WriteExplain(w io.Writer, leak detect.Leak) error {
 			return err
 		}
 	}
+	if next := explainNextStep(leak); next != "" {
+		if _, err := fmt.Fprintf(w, "next step: %s\n", next); err != nil {
+			return err
+		}
+	}
 
 	if len(leak.CleanupPlan) > 0 {
 		if _, err := fmt.Fprintln(w, "\ncleanup plan:"); err != nil {
@@ -53,4 +58,20 @@ func WriteExplain(w io.Writer, leak detect.Leak) error {
 	}
 
 	return nil
+}
+
+func explainNextStep(leak detect.Leak) string {
+	if len(leak.CleanupPlan) > 0 {
+		return fmt.Sprintf("run `scrubd cleanup %s --dry-run`, review the command and evidence, then rerun with `--force` only if the resource is safe to modify", leak.ID)
+	}
+
+	switch leak.Type {
+	case detect.LeakTypeOverlaySnapshot:
+		return "review runtime snapshot metadata and use runtime-supported garbage collection; scrubd does not generate a direct remove command for snapshot directories"
+	default:
+		if leak.SafeAction != "" {
+			return "review the suggested action manually; scrubd does not have a direct cleanup plan for this finding"
+		}
+		return "review the evidence manually; scrubd does not have a direct cleanup plan for this finding"
+	}
 }
