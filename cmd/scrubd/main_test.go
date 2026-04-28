@@ -305,6 +305,33 @@ func TestRunCleanupWithoutForceSkipsDestructiveStep(t *testing.T) {
 	}
 }
 
+func TestRunCleanupWithoutForceRunsNonDestructiveStep(t *testing.T) {
+	leak := detect.NewLeak(detect.LeakTypeMount, detect.SeverityLow, "status", "diagnostic step")
+	leak.CleanupPlan = []cleanup.Step{{
+		Description: "run harmless diagnostic",
+		Command:     []string{"true"},
+	}}
+	withBuildScanReportFunc(t, func(runtimeName runtimeinv.Name, minSeverity detect.Severity) report.Report {
+		return report.Report{Runtime: runtimeName, Leaks: []detect.Leak{leak}}
+	})
+
+	var buf bytes.Buffer
+	if err := runCleanup([]string{leak.ID}, &buf); err != nil {
+		t.Fatal(err)
+	}
+
+	output := buf.String()
+	if strings.Contains(output, "force not set: destructive steps will be skipped") {
+		t.Fatalf("output has destructive warning for non-destructive plan:\n%s", output)
+	}
+	if strings.Contains(output, "requires --force") {
+		t.Fatalf("output has force guard for non-destructive plan:\n%s", output)
+	}
+	if !strings.Contains(output, "status: executed") {
+		t.Fatalf("output missing executed status:\n%s", output)
+	}
+}
+
 func TestRunCleanupReturnsNotFoundForMissingLeak(t *testing.T) {
 	withBuildScanReportFunc(t, func(runtimeName runtimeinv.Name, minSeverity detect.Severity) report.Report {
 		return report.Report{Runtime: runtimeName}
