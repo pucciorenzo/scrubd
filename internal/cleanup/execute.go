@@ -69,6 +69,9 @@ func Execute(w io.Writer, steps []Step, options Options) ([]Result, error) {
 		if err := options.Runner.Run(step.Command); err != nil {
 			result.Error = err.Error()
 			results = append(results, result)
+			if _, writeErr := fmt.Fprintf(w, "  status: failed: %s\n", result.Error); writeErr != nil {
+				return results, writeErr
+			}
 			return results, err
 		}
 
