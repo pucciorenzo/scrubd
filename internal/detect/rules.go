@@ -32,6 +32,9 @@ func DetectOrphanVeth(input Input) []Leak {
 	if runningContainerCount(input.Runtimes) > 0 {
 		return nil
 	}
+	if !runtimeInventoryComplete(input.Runtimes) {
+		return nil
+	}
 
 	var leaks []Leak
 	for _, iface := range input.Host.NetworkInterfaces {
@@ -48,6 +51,7 @@ func DetectOrphanVeth(input Input) []Leak {
 		leak.Evidence = []string{
 			fmt.Sprintf("interface index: %d", iface.Index),
 			"interface kind: veth",
+			"runtime inventories: all selected runtimes available",
 			"running containers: 0",
 		}
 		leak.SafeAction = fmt.Sprintf("ip link delete %s", iface.Name)
@@ -75,10 +79,11 @@ func DetectStaleNetworkNamespaces(host inspect.Inventory) []Leak {
 		if ns.Source != "netns" {
 			continue
 		}
-		if ns.Inode != "" {
-			if _, ok := processInodes[ns.Inode]; ok {
-				continue
-			}
+		if ns.Inode == "" {
+			continue
+		}
+		if _, ok := processInodes[ns.Inode]; ok {
+			continue
 		}
 
 		leak := NewLeak(
@@ -89,7 +94,8 @@ func DetectStaleNetworkNamespaces(host inspect.Inventory) []Leak {
 		)
 		leak.Evidence = []string{
 			fmt.Sprintf("namespace source: %s", ns.Source),
-			fmt.Sprintf("namespace inode: %s", emptyFallback(ns.Inode, "unknown")),
+			fmt.Sprintf("namespace inode: %s", ns.Inode),
+			"matching process namespace: none",
 		}
 		leak.SafeAction = fmt.Sprintf("ip netns delete %s", nsName(ns.Path))
 		leak.RiskNotes = "delete only after confirming no CNI plugin or workload still owns this namespace"
@@ -104,11 +110,18 @@ func DetectStaleNetworkNamespaces(host inspect.Inventory) []Leak {
 }
 
 func DetectAbandonedMounts(input Input) []Leak {
+	if !runtimeCorrelationAvailable(input.Runtimes) {
+		return nil
+	}
 	runningIDs := runningContainerIDs(input.Runtimes)
+	knownIDs := knownContainerIDs(input.Runtimes)
 
 	var leaks []Leak
 	for _, mount := range input.Host.Mounts {
 		if !containerMountCandidate(mount) {
+			continue
+		}
+		if referencesAnyContainer(mountFingerprint(mount), knownIDs) {
 			continue
 		}
 		if referencesAnyRunningContainer(mountFingerprint(mount), runningIDs) {
@@ -119,12 +132,14 @@ func DetectAbandonedMounts(input Input) []Leak {
 			LeakTypeMount,
 			SeverityMedium,
 			mount.MountPoint,
-			"container runtime mount has no matching running container reference",
+			"container runtime mount has no matching known container reference",
 		)
 		leak.Evidence = []string{
 			fmt.Sprintf("mount id: %s", mount.ID),
+			fmt.Sprintf("mount point: %s", mount.MountPoint),
 			fmt.Sprintf("filesystem: %s", mount.FSType),
 			fmt.Sprintf("source: %s", mount.Source),
+			"known container reference: none",
 		}
 		leak.SafeAction = fmt.Sprintf("umount %s", mount.MountPoint)
 		leak.RiskNotes = "unmount only after confirming no runtime task or process still uses this mount"
@@ -139,10 +154,20 @@ func DetectAbandonedMounts(input Input) []Leak {
 }
 
 func DetectDanglingOverlaySnapshots(input Input) []Leak {
+	if !runtimeCorrelationAvailable(input.Runtimes) {
+		return nil
+	}
 	runningIDs := runningContainerIDs(input.Runtimes)
+	knownIDs := knownContainerIDs(input.Runtimes)
 
 	var leaks []Leak
 	for _, snapshot := range input.Host.Snapshots {
+		if !overlaySnapshotCandidate(snapshot) {
+			continue
+		}
+		if referencesAnyContainer(snapshot.Path, knownIDs) {
+			continue
+		}
 		if referencesAnyRunningContainer(snapshot.Path, runningIDs) {
 			continue
 		}
@@ -154,11 +179,14 @@ func DetectDanglingOverlaySnapshots(input Input) []Leak {
 			LeakTypeOverlaySnapshot,
 			SeverityLow,
 			snapshot.Path,
-			"overlay snapshot is not mounted and has no matching running container reference",
+			"overlay snapshot is not mounted and has no matching known container reference",
 		)
 		leak.Evidence = []string{
 			fmt.Sprintf("runtime: %s", snapshot.Runtime),
 			fmt.Sprintf("snapshot id: %s", snapshot.ID),
+			fmt.Sprintf("path: %s", snapshot.Path),
+			"mounted: false",
+			"known container reference: none",
 		}
 		leak.SafeAction = fmt.Sprintf("%s runtime garbage collection or manual snapshot review", snapshot.Runtime)
 		leak.RiskNotes = "snapshot directories can back images or stopped containers; do not remove directly without runtime metadata"
@@ -168,11 +196,21 @@ func DetectDanglingOverlaySnapshots(input Input) []Leak {
 }
 
 func DetectStaleCgroups(input Input) []Leak {
+	if !runtimeCorrelationAvailable(input.Runtimes) {
+		return nil
+	}
 	runningIDs := runningContainerIDs(input.Runtimes)
+	knownIDs := knownContainerIDs(input.Runtimes)
 
 	var leaks []Leak
 	for _, cgroup := range input.Host.Cgroups {
 		if !containerCgroupCandidate(cgroup.Path) {
+			continue
+		}
+		if !cgroup.ProcessCountKnown || cgroup.ProcessCount != 0 {
+			continue
+		}
+		if referencesAnyContainer(cgroup.Path, knownIDs) {
 			continue
 		}
 		if referencesAnyRunningContainer(cgroup.Path, runningIDs) {
@@ -183,11 +221,13 @@ func DetectStaleCgroups(input Input) []Leak {
 			LeakTypeCgroup,
 			SeverityLow,
 			cgroup.Path,
-			"container runtime cgroup has no matching running container reference",
+			"container runtime cgroup has no matching known container reference",
 		)
 		leak.Evidence = []string{
 			fmt.Sprintf("hierarchy: %s", cgroup.HierarchyID),
 			fmt.Sprintf("controllers: %s", strings.Join(cgroup.Controllers, ",")),
+			fmt.Sprintf("process count: %d", cgroup.ProcessCount),
+			"known container reference: none",
 		}
 		leak.SafeAction = fmt.Sprintf("rmdir /sys/fs/cgroup%s", cgroup.Path)
 		leak.RiskNotes = "remove only after confirming the cgroup is empty and no runtime owns it"
@@ -202,11 +242,18 @@ func DetectStaleCgroups(input Input) []Leak {
 }
 
 func DetectOrphanRuntimeProcesses(input Input) []Leak {
+	if !runtimeCorrelationAvailable(input.Runtimes) {
+		return nil
+	}
 	runningIDs := runningContainerIDs(input.Runtimes)
+	knownIDs := knownContainerIDs(input.Runtimes)
 
 	var leaks []Leak
 	for _, process := range input.Host.Processes {
-		if !runtimeProcessCandidate(process) {
+		if !runtimeProcessCandidate(process, input.Runtimes) {
+			continue
+		}
+		if referencesAnyContainer(processFingerprint(process), knownIDs) {
 			continue
 		}
 		if referencesAnyRunningContainer(processFingerprint(process), runningIDs) {
@@ -218,12 +265,13 @@ func DetectOrphanRuntimeProcesses(input Input) []Leak {
 			LeakTypeRuntimeProcess,
 			SeverityMedium,
 			resource,
-			"container runtime helper process has no matching running container reference",
+			"container runtime helper process has no matching known container reference",
 		)
 		leak.Evidence = []string{
 			fmt.Sprintf("pid: %d", process.PID),
 			fmt.Sprintf("command: %s", process.Command),
 			fmt.Sprintf("args: %s", strings.Join(process.Args, " ")),
+			"known container reference: none",
 		}
 		leak.SafeAction = fmt.Sprintf("kill -TERM %d", process.PID)
 		leak.RiskNotes = "terminate only after confirming the runtime no longer owns this process"
@@ -249,6 +297,27 @@ func runningContainerCount(inventories []runtimeinv.Inventory) int {
 	return count
 }
 
+func runtimeCorrelationAvailable(inventories []runtimeinv.Inventory) bool {
+	for _, inv := range inventories {
+		if inv.Available || len(inv.Containers) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeInventoryComplete(inventories []runtimeinv.Inventory) bool {
+	if len(inventories) == 0 {
+		return false
+	}
+	for _, inv := range inventories {
+		if !inv.Available {
+			return false
+		}
+	}
+	return true
+}
+
 func runningContainerIDs(inventories []runtimeinv.Inventory) []string {
 	var ids []string
 	for _, inv := range inventories {
@@ -261,17 +330,57 @@ func runningContainerIDs(inventories []runtimeinv.Inventory) []string {
 	return ids
 }
 
+func knownContainerIDs(inventories []runtimeinv.Inventory) []string {
+	var ids []string
+	for _, inv := range inventories {
+		for _, container := range inv.Containers {
+			if container.ID != "" {
+				ids = append(ids, container.ID)
+			}
+		}
+	}
+	return ids
+}
+
 func containerMountCandidate(mount inspect.Mount) bool {
 	fingerprint := mountFingerprint(mount)
-	if !containsAny(fingerprint, "docker", "containerd", "containers", "kubepods") {
+	return dockerOverlayMountCandidate(fingerprint) ||
+		containerdOverlayMountCandidate(fingerprint)
+}
+
+func dockerOverlayMountCandidate(fingerprint string) bool {
+	fingerprint = strings.ToLower(fingerprint)
+	return strings.Contains(fingerprint, "/overlay2/") &&
+		strings.Contains(fingerprint, "/merged")
+}
+
+func containerdOverlayMountCandidate(fingerprint string) bool {
+	fingerprint = strings.ToLower(fingerprint)
+	return strings.Contains(fingerprint, "/io.containerd.snapshotter.v1.overlayfs/snapshots/") &&
+		strings.Contains(fingerprint, "/fs")
+}
+
+func overlaySnapshotCandidate(snapshot inspect.Snapshot) bool {
+	path := strings.ToLower(snapshot.Path)
+	switch snapshot.Runtime {
+	case "docker":
+		return strings.Contains(path, "/overlay2/")
+	case "containerd":
+		return strings.Contains(path, "/io.containerd.snapshotter.v1.overlayfs/snapshots/")
+	default:
 		return false
 	}
-	return mount.FSType == "overlay" ||
-		containsAny(fingerprint, "/var/lib/docker", "/var/lib/containerd", "/run/containerd", "/run/docker")
 }
 
 func containerCgroupCandidate(path string) bool {
-	return containsAny(path, "docker", "containerd", "kubepods", "libpod")
+	path = strings.ToLower(path)
+	if strings.HasSuffix(path, ".service") || strings.HasSuffix(path, ".socket") {
+		return false
+	}
+	if strings.Contains(path, "kubepods") {
+		return strings.Contains(path, "/pod")
+	}
+	return containsAny(path, "docker", "containerd", "libpod")
 }
 
 func mountFingerprint(mount inspect.Mount) string {
@@ -286,11 +395,24 @@ func mountFingerprint(mount inspect.Mount) string {
 	return strings.Join(parts, " ")
 }
 
-func runtimeProcessCandidate(process inspect.Process) bool {
+func runtimeProcessCandidate(process inspect.Process, runtimes []runtimeinv.Inventory) bool {
 	command := strings.ToLower(process.Command)
-	return strings.Contains(command, "containerd-shim") ||
-		strings.Contains(command, "docker-proxy") ||
-		command == "runc"
+	for _, inv := range runtimes {
+		if !inv.Available && len(inv.Containers) == 0 {
+			continue
+		}
+		switch inv.Runtime {
+		case runtimeinv.NameDocker:
+			if strings.Contains(command, "docker-proxy") || command == "runc" {
+				return true
+			}
+		case runtimeinv.NameContainerd:
+			if strings.Contains(command, "containerd-shim") || command == "runc" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func processFingerprint(process inspect.Process) string {
@@ -308,6 +430,10 @@ func snapshotMounted(snapshot inspect.Snapshot, mounts []inspect.Mount) bool {
 }
 
 func referencesAnyRunningContainer(value string, ids []string) bool {
+	return referencesAnyContainer(value, ids)
+}
+
+func referencesAnyContainer(value string, ids []string) bool {
 	for _, id := range ids {
 		if strings.Contains(value, id) {
 			return true
@@ -333,13 +459,6 @@ func nsName(path string) string {
 		}
 	}
 	return path
-}
-
-func emptyFallback(value, fallback string) string {
-	if value == "" {
-		return fallback
-	}
-	return value
 }
 
 func sortLeaks(leaks []Leak) {
