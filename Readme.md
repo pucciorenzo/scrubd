@@ -48,6 +48,20 @@ go run ./cmd/scrubd cleanup <leak-id> --dry-run
 go run ./cmd/scrubd cleanup <leak-id> --force
 ```
 
+## Install From Source
+
+Build a local binary:
+
+```bash
+make build
+```
+
+Install it somewhere on `PATH`:
+
+```bash
+sudo install -m 0755 scrubd /usr/local/bin/scrubd
+```
+
 Installed binary examples:
 
 ```bash
@@ -55,6 +69,24 @@ scrubd scan
 scrubd scan --json
 scrubd scan --min-severity medium
 scrubd cleanup <leak-id> --dry-run
+```
+
+Makefile shortcuts:
+
+```bash
+make check
+make build
+make leak-create
+make sudo-scan
+make sudo-scan-json
+make sudo-scan-docker
+make leak-cleanup
+```
+
+On a disposable Linux host, this runs the validated leak-lab flow end to end:
+
+```bash
+make linux-validate
 ```
 
 Supported runtime values:
@@ -69,6 +101,45 @@ Supported minimum severity values:
 - `medium`
 - `high`
 - `critical`
+
+## Real World Scenario
+
+You notice a Linux server is unhealthy after a failed deploy: disk usage is
+high, container networking is unreliable, and `ps` shows old runtime helper
+processes. You do not want to run broad prune commands yet because the host may
+still have valid stopped containers and images.
+
+First, run a read-only scan:
+
+```bash
+scrubd scan --json
+```
+
+The report shows an abandoned overlay mount, a stale named network namespace,
+and an orphaned runtime helper process. You inspect one finding before touching
+the host:
+
+```bash
+scrubd explain <leak-id>
+```
+
+Then preview cleanup:
+
+```bash
+scrubd cleanup <leak-id> --dry-run
+```
+
+After confirming the evidence and command are correct, run the guarded cleanup:
+
+```bash
+scrubd cleanup <leak-id> --force
+```
+
+For a disposable Linux drill that creates today's supported leak shapes, use
+[`hack/leak-lab.sh`](hack/leak-lab.sh) and the examples in
+[`hack/current-detections.md`](hack/current-detections.md). Future production
+ideas, such as CNI IPAM leaks, stale firewall rules, and volume drift, are
+tracked in [`hack/future-detections.md`](hack/future-detections.md).
 
 ## Build And Test
 
@@ -87,11 +158,43 @@ GOCACHE=/tmp/scrubd-go-build go vet ./...
 GOCACHE=/tmp/scrubd-go-build go build ./...
 ```
 
+## Release Artifacts
+
+The command name and installed binary name are `scrubd`.
+
+Build local Linux release directories:
+
+```bash
+make dist VERSION=0.1.0
+```
+
+Artifact layout:
+
+```text
+dist/
+  scrubd_0.1.0_linux_amd64/
+    scrubd
+  scrubd_0.1.0_linux_arm64/
+    scrubd
+```
+
+The binaries are built with `CGO_ENABLED=0`, `-trimpath`, and stripped linker
+flags so they are suitable for copying to Linux hosts.
+
+The container image uses the same `/scrubd` binary:
+
+```bash
+make docker-build IMAGE=scrubd:0.1.0
+```
+
 ## Safety Model
 
 - `scan` and `explain` are read-only.
+- Runtime-correlated detections are skipped when no runtime inventory is
+  available, because Docker/containerd socket or permission failures make
+  orphan correlation unsafe.
 - `cleanup <leak-id> --dry-run` prints commands without executing them.
-- `cleanup <leak-id>` without `--force` skips destructive steps.
+- `cleanup <leak-id>` without `--force` prints a plan and clearly skips destructive steps.
 - `cleanup <leak-id> --force` executes cleanup steps through `exec.Command`, not a shell.
 - Dangling overlay snapshots currently do not get a direct `rm` cleanup plan because snapshot directories can back images or stopped containers. The report recommends runtime garbage collection or manual metadata review.
 
@@ -101,7 +204,7 @@ GOCACHE=/tmp/scrubd-go-build go build ./...
 
 Function: `detect.DetectOrphanVeth`
 
-Flags veth interfaces when no running runtime containers are known. The cleanup plan uses:
+Flags veth interfaces only when every selected runtime inventory is available and no running runtime containers are known. This avoids claiming orphaned network devices while another selected runtime may be unreadable. The cleanup plan uses:
 
 ```bash
 ip link delete <interface>
@@ -111,7 +214,7 @@ ip link delete <interface>
 
 Function: `detect.DetectStaleNetworkNamespaces`
 
-Flags named namespaces from `/var/run/netns` when no process network namespace has the same inode. The cleanup plan uses:
+Flags named namespaces from `/var/run/netns` when the namespace inode is known and no process network namespace has the same inode. Namespaces with unreadable or unknown inode are skipped and surfaced by inspection warnings instead of reported as stale. The cleanup plan uses:
 
 ```bash
 ip netns delete <namespace>
@@ -121,7 +224,7 @@ ip netns delete <namespace>
 
 Function: `detect.DetectAbandonedMounts`
 
-Flags runtime-looking mounts, such as Docker/containerd overlay mounts, when no running container ID appears in the mount fingerprint. The cleanup plan uses:
+Flags Docker `overlay2/.../merged` and containerd `overlayfs/snapshots/.../fs` mounts when no known container ID appears in the mount fingerprint. Broad runtime directory mounts are skipped to avoid unsafe cleanup suggestions. The cleanup plan uses:
 
 ```bash
 umount <mount-point>
@@ -131,13 +234,13 @@ umount <mount-point>
 
 Function: `detect.DetectDanglingOverlaySnapshots`
 
-Flags Docker/containerd overlay snapshot directories when they are not mounted and no running container ID appears in the snapshot path. No destructive cleanup command is generated.
+Flags recognized Docker/containerd overlay snapshot directories when they are not mounted and no known container ID appears in the snapshot path. Unknown snapshot runtimes are skipped. No destructive cleanup command is generated.
 
 ### Stale Cgroups
 
 Function: `detect.DetectStaleCgroups`
 
-Flags runtime-looking cgroup paths, such as `docker`, `containerd`, `kubepods`, or `libpod`, when no running container ID appears in the path. The cleanup plan uses:
+Flags runtime-looking cgroup paths, such as container scopes, `kubepods`, or `libpod`, when the cgroup process count is known to be zero and no known container ID appears in the path. Docker/containerd systemd service and socket units are skipped. The cleanup plan uses:
 
 ```bash
 rmdir /sys/fs/cgroup<path>
@@ -147,7 +250,7 @@ rmdir /sys/fs/cgroup<path>
 
 Function: `detect.DetectOrphanRuntimeProcesses`
 
-Flags helper processes such as `containerd-shim*`, `docker-proxy`, and `runc` when their command line has no running container ID reference. The cleanup plan uses:
+Flags helper processes for selected available runtimes, such as `containerd-shim*`, `docker-proxy`, and `runc`, when their command line has no known container ID reference. This avoids Docker-only scans reporting containerd helpers. The cleanup plan uses:
 
 ```bash
 kill -TERM <pid>
@@ -213,8 +316,9 @@ internal/cleanup/
 - `runtime.NewDefaultCollector`: creates a runtime collector with default socket paths.
 - `runtime.ValidName`: validates `auto`, `docker`, or `containerd`.
 - `runtime.Collector.Inventories`: dispatches runtime collection by selected runtime.
-- `runtime.Collector.Docker`: queries Docker `/containers/json?all=false` and per-container inspect over the Unix socket.
-- `runtime.Collector.Containerd`: queries containerd CRI `ListContainers` over gRPC.
+- `runtime.Collector.Docker`: queries Docker `/containers/json?all=true` and per-container inspect over system or rootless Unix socket candidates.
+- `runtime.Collector.Containerd`: queries containerd CRI `ListContainers` over system or rootless Unix socket candidates.
+- Runtime warnings distinguish missing sockets, permission problems, connect timeouts, and CRI API unavailability.
 
 ### Host Inspection
 
@@ -225,7 +329,7 @@ internal/cleanup/
 - `inspect.Collector.NetworkNamespaces`: reads named and process network namespaces.
 - `inspect.Collector.Mounts`: reads and parses `/proc/self/mountinfo`.
 - `inspect.Collector.Snapshots`: reads Docker and containerd overlay snapshot directories.
-- `inspect.Collector.Cgroups`: reads and parses `/proc/self/cgroup`.
+- `inspect.Collector.Cgroups`: scans runtime-looking cgroup directories under `/sys/fs/cgroup`, falling back to `/proc/self/cgroup` when the cgroup root is unavailable.
 - `inspect.Collector.Processes`: reads process command names and argv from `/proc`.
 
 ### Detection
@@ -233,10 +337,10 @@ internal/cleanup/
 - `detect.Detect`: runs every detection rule and sorts leaks by severity, type, and resource.
 - `detect.DetectOrphanVeth`: finds orphaned veth interfaces.
 - `detect.DetectStaleNetworkNamespaces`: finds named netns entries without process inode matches.
-- `detect.DetectAbandonedMounts`: finds runtime mounts without running container references.
-- `detect.DetectDanglingOverlaySnapshots`: finds unmounted overlay snapshots without running container references.
-- `detect.DetectStaleCgroups`: finds runtime-looking cgroups without running container references.
-- `detect.DetectOrphanRuntimeProcesses`: finds runtime helper processes without running container references.
+- `detect.DetectAbandonedMounts`: finds runtime mounts without known container references.
+- `detect.DetectDanglingOverlaySnapshots`: finds unmounted overlay snapshots without known container references.
+- `detect.DetectStaleCgroups`: finds runtime-looking cgroups without known container references.
+- `detect.DetectOrphanRuntimeProcesses`: finds runtime helper processes without known container references.
 - `detect.NewLeak`: creates a leak and assigns a stable ID.
 - `detect.StableID`: creates deterministic leak IDs from leak type and resource.
 - `detect.Leak.Validate`: checks required leak fields.
@@ -294,25 +398,47 @@ type Report struct {
 ```text
 Container leak scan report
 
-generated: 2026-04-25T21:18:35Z
-runtime: auto
-runtimes: 0 available / 2 checked
+generated: 2026-04-27T18:19:22Z
+runtime: docker
+runtimes: 1 available / 1 checked
 containers: 0
-leaks: 1 (critical=0 high=1 medium=0 low=0)
+leaks: 3 (critical=0 high=1 medium=2 low=0)
 
 [HIGH] orphaned_veth_interface
-  id: leak-f03aba9c2c00
-  resource: veth9f31a2
+  id: leak-d2ffeb6af46d
+  resource: vethscrubd0
   reason: veth interface found but no running runtime container references are available
-  suggested action: ip link delete veth9f31a2
+  suggested action: ip link delete vethscrubd0
+  evidence: interface index: 13
   evidence: interface kind: veth
+  evidence: runtime inventories: all selected runtimes available
+  evidence: running containers: 0
   risk: delete only after confirming no workload uses this interface
+
+[MEDIUM] abandoned_container_mount
+  id: leak-d4e12caa565a
+  resource: /tmp/scrubd-leak/var/lib/docker/overlay2/scrubd-leak/merged
+  reason: container runtime mount has no matching known container reference
+  suggested action: umount /tmp/scrubd-leak/var/lib/docker/overlay2/scrubd-leak/merged
+  evidence: filesystem: tmpfs
+  evidence: known container reference: none
+  risk: unmount only after confirming no runtime task or process still uses this mount
+
+[MEDIUM] stale_network_namespace
+  id: leak-5c5479969eb4
+  resource: /var/run/netns/scrubd-leak-ns
+  reason: named network namespace has no matching process network namespace
+  suggested action: ip netns delete scrubd-leak-ns
+  evidence: namespace source: netns
+  evidence: matching process namespace: none
+  risk: delete only after confirming no CNI plugin or workload still owns this namespace
 ```
 
 ## JSON Output
 
 `scan --json` emits:
 
+- `schema_version`
 - `generated_at`
 - `runtime`
 - `runtimes`
@@ -320,9 +446,37 @@ leaks: 1 (critical=0 high=1 medium=0 low=0)
 - `warnings`
 - `summary`
 
-This shape is intended for automation and tests.
+This shape is intended for automation and tests. `schema_version` is currently
+`scrubd.scan.v1`; automation should check it before parsing fields strictly.
 
 `scan --min-severity <level>` filters `leaks` before summary counts are computed, so text and JSON totals match the displayed leak set.
+
+Minimal JSON shape:
+
+```json
+{
+  "schema_version": "scrubd.scan.v1",
+  "runtime": "docker",
+  "leaks": [
+    {
+      "id": "leak-d2ffeb6af46d",
+      "type": "orphaned_veth_interface",
+      "severity": "high",
+      "resource": "vethscrubd0",
+      "cleanup_plan": [
+        {
+          "description": "delete veth interface vethscrubd0",
+          "command": ["ip", "link", "delete", "vethscrubd0"],
+          "destructive": true
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "leak_count": 1
+  }
+}
+```
 
 ## Project Status
 
