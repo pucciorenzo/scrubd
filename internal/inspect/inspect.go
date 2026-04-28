@@ -1,5 +1,10 @@
 package inspect
 
+import (
+	"fmt"
+	"runtime"
+)
+
 type Collector struct {
 	paths Paths
 }
@@ -13,6 +18,18 @@ func NewDefaultCollector() Collector {
 }
 
 func (c Collector) Inventory() Inventory {
+	return c.inventory(runtime.GOOS)
+}
+
+func (c Collector) inventory(goos string) Inventory {
+	if goos != "linux" {
+		return Inventory{
+			Warnings: []string{
+				fmt.Sprintf("host inspection unsupported on %s: scrubd must run on Linux to inspect container runtime resources", goos),
+			},
+		}
+	}
+
 	var inv Inventory
 
 	addWarnings := func(warnings []string) {

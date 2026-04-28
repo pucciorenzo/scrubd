@@ -44,9 +44,11 @@ type Snapshot struct {
 }
 
 type Cgroup struct {
-	HierarchyID string   `json:"hierarchy_id"`
-	Controllers []string `json:"controllers,omitempty"`
-	Path        string   `json:"path"`
+	HierarchyID       string   `json:"hierarchy_id"`
+	Controllers       []string `json:"controllers,omitempty"`
+	Path              string   `json:"path"`
+	ProcessCount      int      `json:"process_count"`
+	ProcessCountKnown bool     `json:"process_count_known"`
 }
 
 type Process struct {
@@ -60,6 +62,7 @@ type Paths struct {
 	ProcDir               string
 	MountInfo             string
 	Cgroup                string
+	CgroupRoot            string
 	DockerOverlayDir      string
 	ContainerdSnapshotDir string
 }
@@ -70,6 +73,7 @@ func DefaultPaths() Paths {
 		ProcDir:               "/proc",
 		MountInfo:             "/proc/self/mountinfo",
 		Cgroup:                "/proc/self/cgroup",
+		CgroupRoot:            "/sys/fs/cgroup",
 		DockerOverlayDir:      "/var/lib/docker/overlay2",
 		ContainerdSnapshotDir: "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots",
 	}
