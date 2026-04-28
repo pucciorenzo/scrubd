@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"scrubd/internal/cleanup"
 	"scrubd/internal/detect"
 	runtimeinv "scrubd/internal/runtime"
 )
@@ -97,7 +98,11 @@ func TestWriteExplain(t *testing.T) {
 	leak.Evidence = []string{"namespace inode: 10"}
 	leak.SafeAction = "ip netns delete test ns"
 	leak.RiskNotes = "verify owner first"
-	leak.CleanupPlan = leak.CleanupPlan[:0]
+	leak.CleanupPlan = []cleanup.Step{{
+		Description: "delete network namespace test ns",
+		Command:     []string{"ip", "netns", "delete", "test ns"},
+		Destructive: true,
+	}}
 
 	var buf bytes.Buffer
 	if err := WriteExplain(&buf, leak); err != nil {
@@ -105,9 +110,39 @@ func TestWriteExplain(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"Leak explanation", "namespace inode: 10", "risk: verify owner first", "suggested action: ip netns delete test ns"} {
+	for _, want := range []string{
+		"Leak explanation",
+		"namespace inode: 10",
+		"risk: verify owner first",
+		"suggested action: ip netns delete test ns",
+		"next step: run `scrubd cleanup " + leak.ID + " --dry-run`",
+		"command: ip netns delete 'test ns'",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestWriteExplainWithoutCleanupPlanShowsManualNextStep(t *testing.T) {
+	leak := detect.NewLeak(detect.LeakTypeOverlaySnapshot, detect.SeverityLow, "/var/lib/docker/overlay2/snap", "snapshot is not mounted")
+	leak.SafeAction = "docker runtime garbage collection or manual snapshot review"
+
+	var buf bytes.Buffer
+	if err := WriteExplain(&buf, leak); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"suggested action: docker runtime garbage collection or manual snapshot review",
+		"next step: review runtime snapshot metadata and use runtime-supported garbage collection",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "cleanup plan:") {
+		t.Fatalf("output includes cleanup plan for manual-only leak:\n%s", out)
 	}
 }
