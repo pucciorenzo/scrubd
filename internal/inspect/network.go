@@ -3,6 +3,9 @@ package inspect
 import (
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -17,6 +20,7 @@ func (c Collector) NetworkInterfaces() ([]NetworkInterface, []string) {
 		out = append(out, NetworkInterface{
 			Name:         iface.Name,
 			Index:        iface.Index,
+			PeerIndex:    c.interfacePeerIndex(iface),
 			HardwareAddr: iface.HardwareAddr.String(),
 			Flags:        interfaceFlags(iface.Flags),
 			Kind:         interfaceKind(iface.Name),
@@ -24,6 +28,21 @@ func (c Collector) NetworkInterfaces() ([]NetworkInterface, []string) {
 	}
 
 	return out, nil
+}
+
+func (c Collector) interfacePeerIndex(iface net.Interface) int {
+	if c.paths.NetClassDir == "" {
+		return 0
+	}
+	data, err := os.ReadFile(filepath.Join(c.paths.NetClassDir, iface.Name, "iflink"))
+	if err != nil {
+		return 0
+	}
+	peerIndex, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || peerIndex == iface.Index {
+		return 0
+	}
+	return peerIndex
 }
 
 func interfaceFlags(flags net.Flags) []string {
