@@ -1,5 +1,11 @@
 package runtime
 
+import (
+	"os"
+	"path/filepath"
+	"strconv"
+)
+
 type Name string
 
 const (
@@ -26,14 +32,18 @@ type Container struct {
 }
 
 type Paths struct {
-	DockerSocket     string
-	ContainerdSocket string
+	DockerSocket      string
+	DockerSockets     []string
+	ContainerdSocket  string
+	ContainerdSockets []string
 }
 
 func DefaultPaths() Paths {
 	return Paths{
-		DockerSocket:     "/var/run/docker.sock",
-		ContainerdSocket: "/run/containerd/containerd.sock",
+		DockerSocket:      "/var/run/docker.sock",
+		DockerSockets:     rootlessDockerSockets(os.Getenv("XDG_RUNTIME_DIR"), os.Getuid()),
+		ContainerdSocket:  "/run/containerd/containerd.sock",
+		ContainerdSockets: rootlessContainerdSockets(os.Getenv("XDG_RUNTIME_DIR"), os.Getuid()),
 	}
 }
 
@@ -47,6 +57,49 @@ func NewCollector(paths Paths) Collector {
 
 func NewDefaultCollector() Collector {
 	return NewCollector(DefaultPaths())
+}
+
+func (c Collector) dockerSocketCandidates() []string {
+	return socketCandidates(c.paths.DockerSocket, c.paths.DockerSockets)
+}
+
+func (c Collector) containerdSocketCandidates() []string {
+	return socketCandidates(c.paths.ContainerdSocket, c.paths.ContainerdSockets)
+}
+
+func socketCandidates(primary string, extra []string) []string {
+	values := append([]string{primary}, extra...)
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func rootlessDockerSockets(runtimeDir string, uid int) []string {
+	var sockets []string
+	if runtimeDir != "" {
+		sockets = append(sockets, filepath.Join(runtimeDir, "docker.sock"))
+	}
+	sockets = append(sockets, filepath.Join("/run/user", strconv.Itoa(uid), "docker.sock"))
+	return socketCandidates("", sockets)
+}
+
+func rootlessContainerdSockets(runtimeDir string, uid int) []string {
+	var sockets []string
+	if runtimeDir != "" {
+		sockets = append(sockets, filepath.Join(runtimeDir, "containerd", "containerd.sock"))
+	}
+	sockets = append(sockets, filepath.Join("/run/user", strconv.Itoa(uid), "containerd", "containerd.sock"))
+	return socketCandidates("", sockets)
 }
 
 func ValidName(name Name) bool {

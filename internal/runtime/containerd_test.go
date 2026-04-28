@@ -50,13 +50,35 @@ func TestContainerdInventoryReachableSocketWithoutCRI(t *testing.T) {
 	}()
 
 	inv := NewCollector(Paths{ContainerdSocket: socketPath}).Containerd()
-	if !inv.Available {
-		t.Fatalf("containerd inventory unavailable: %#v", inv.Warnings)
+	if inv.Available {
+		t.Fatalf("containerd inventory available without CRI: %#v", inv)
 	}
 	if len(inv.Warnings) != 1 {
 		t.Fatalf("warnings = %#v", inv.Warnings)
 	}
 	<-done
+}
+
+func TestContainerdInventoryFallsBackToRootlessSocket(t *testing.T) {
+	socketPath := tempSocketPath(t, "containerd.sock")
+	server := newRawGRPCServer(t, socketPath, buildCRIListContainersResponse(
+		buildCRIContainer("abc123", "web", "nginx:latest", 1),
+	))
+	defer server.Stop()
+
+	inv := NewCollector(Paths{
+		ContainerdSocket:  tempSocketPath(t, "missing.sock"),
+		ContainerdSockets: []string{socketPath},
+	}).Containerd()
+	if !inv.Available {
+		t.Fatalf("containerd inventory unavailable: %#v", inv.Warnings)
+	}
+	if len(inv.Warnings) != 0 {
+		t.Fatalf("warnings = %#v, want none after fallback succeeds", inv.Warnings)
+	}
+	if len(inv.Containers) != 1 || inv.Containers[0].ID != "abc123" {
+		t.Fatalf("containers = %#v, want fallback inventory", inv.Containers)
+	}
 }
 
 func TestContainerdInventoryMissingSocket(t *testing.T) {
@@ -67,6 +89,9 @@ func TestContainerdInventoryMissingSocket(t *testing.T) {
 	if len(inv.Warnings) != 1 {
 		t.Fatalf("warnings = %#v", inv.Warnings)
 	}
+	if !contains(inv.Warnings[0], "containerd socket missing: checked") {
+		t.Fatalf("warning = %q, want checked socket warning", inv.Warnings[0])
+	}
 }
 
 func TestParseCRIListContainersResponse(t *testing.T) {
@@ -75,12 +100,39 @@ func TestParseCRIListContainersResponse(t *testing.T) {
 		buildCRIContainer("def456", "job", "busybox:latest", 2),
 	)
 
-	containers := parseCRIListContainersResponse(response)
+	containers, err := parseCRIListContainersResponse(response)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(containers) != 2 {
 		t.Fatalf("len(containers) = %d, want 2", len(containers))
 	}
 	if containers[0].State != "running" || containers[1].State != "exited" {
 		t.Fatalf("unexpected states: %#v", containers)
+	}
+}
+
+func TestParseCRIListContainersResponseRejectsMalformedData(t *testing.T) {
+	_, err := parseCRIListContainersResponse([]byte{0x0a, 0xff})
+	if err == nil {
+		t.Fatal("expected malformed CRI response error")
+	}
+}
+
+func TestContainerdInventoryWarnsOnMalformedCRIResponse(t *testing.T) {
+	socketPath := tempSocketPath(t, "containerd.sock")
+	server := newRawGRPCServer(t, socketPath, []byte{0x0a, 0xff})
+	defer server.Stop()
+
+	inv := NewCollector(Paths{ContainerdSocket: socketPath}).Containerd()
+	if inv.Available {
+		t.Fatalf("containerd inventory available with malformed CRI response: %#v", inv)
+	}
+	if len(inv.Containers) != 0 {
+		t.Fatalf("containers = %#v, want none", inv.Containers)
+	}
+	if len(inv.Warnings) != 1 || !contains(inv.Warnings[0], "malformed CRI list containers response") {
+		t.Fatalf("warnings = %#v, want malformed CRI warning", inv.Warnings)
 	}
 }
 

@@ -1,54 +1,63 @@
 package runtime
 
-func parseCRIListContainersResponse(data []byte) []Container {
+import "fmt"
+
+func parseCRIListContainersResponse(data []byte) ([]Container, error) {
 	var containers []Container
 	for len(data) > 0 {
 		field, wire, rest, ok := consumeProtoKey(data)
 		if !ok {
-			break
+			return containers, fmt.Errorf("malformed CRI list containers response: invalid field key")
 		}
 		data = rest
 		switch {
 		case field == 1 && wire == 2:
 			value, rest, ok := consumeProtoBytes(data)
 			if !ok {
-				return containers
+				return containers, fmt.Errorf("malformed CRI list containers response: invalid container message")
 			}
-			containers = append(containers, parseCRIContainer(value))
+			container, err := parseCRIContainer(value)
+			if err != nil {
+				return containers, err
+			}
+			containers = append(containers, container)
 			data = rest
 		default:
 			rest, ok := skipProtoValue(data, wire)
 			if !ok {
-				return containers
+				return containers, fmt.Errorf("malformed CRI list containers response: invalid field value")
 			}
 			data = rest
 		}
 	}
-	return containers
+	return containers, nil
 }
 
-func parseCRIContainer(data []byte) Container {
+func parseCRIContainer(data []byte) (Container, error) {
 	var container Container
 	for len(data) > 0 {
 		field, wire, rest, ok := consumeProtoKey(data)
 		if !ok {
-			break
+			return container, fmt.Errorf("malformed CRI container: invalid field key")
 		}
 		data = rest
 		switch {
 		case field == 1 && wire == 2:
 			value, rest, ok := consumeProtoBytes(data)
 			if !ok {
-				return container
+				return container, fmt.Errorf("malformed CRI container: invalid id")
 			}
 			container.ID = string(value)
 			data = rest
 		case field == 3 && wire == 2:
 			value, rest, ok := consumeProtoBytes(data)
 			if !ok {
-				return container
+				return container, fmt.Errorf("malformed CRI container: invalid metadata")
 			}
-			name := parseCRIMetadataName(value)
+			name, err := parseCRIMetadataName(value)
+			if err != nil {
+				return container, err
+			}
 			if name != "" {
 				container.Names = []string{name}
 			}
@@ -56,14 +65,18 @@ func parseCRIContainer(data []byte) Container {
 		case field == 4 && wire == 2:
 			value, rest, ok := consumeProtoBytes(data)
 			if !ok {
-				return container
+				return container, fmt.Errorf("malformed CRI container: invalid image")
 			}
-			container.Image = parseCRIImageName(value)
+			image, err := parseCRIImageName(value)
+			if err != nil {
+				return container, err
+			}
+			container.Image = image
 			data = rest
 		case field == 6 && wire == 0:
 			state, rest, ok := consumeProtoVarint(data)
 			if !ok {
-				return container
+				return container, fmt.Errorf("malformed CRI container: invalid state")
 			}
 			container.State = criStateName(state)
 			container.Status = container.State
@@ -71,58 +84,58 @@ func parseCRIContainer(data []byte) Container {
 		default:
 			rest, ok := skipProtoValue(data, wire)
 			if !ok {
-				return container
+				return container, fmt.Errorf("malformed CRI container: invalid field value")
 			}
 			data = rest
 		}
 	}
-	return container
+	return container, nil
 }
 
-func parseCRIMetadataName(data []byte) string {
+func parseCRIMetadataName(data []byte) (string, error) {
 	for len(data) > 0 {
 		field, wire, rest, ok := consumeProtoKey(data)
 		if !ok {
-			break
+			return "", fmt.Errorf("malformed CRI metadata: invalid field key")
 		}
 		data = rest
 		if field == 1 && wire == 2 {
 			value, _, ok := consumeProtoBytes(data)
 			if ok {
-				return string(value)
+				return string(value), nil
 			}
-			return ""
+			return "", fmt.Errorf("malformed CRI metadata: invalid name")
 		}
 		rest, ok = skipProtoValue(data, wire)
 		if !ok {
-			return ""
+			return "", fmt.Errorf("malformed CRI metadata: invalid field value")
 		}
 		data = rest
 	}
-	return ""
+	return "", nil
 }
 
-func parseCRIImageName(data []byte) string {
+func parseCRIImageName(data []byte) (string, error) {
 	for len(data) > 0 {
 		field, wire, rest, ok := consumeProtoKey(data)
 		if !ok {
-			break
+			return "", fmt.Errorf("malformed CRI image: invalid field key")
 		}
 		data = rest
 		if field == 1 && wire == 2 {
 			value, _, ok := consumeProtoBytes(data)
 			if ok {
-				return string(value)
+				return string(value), nil
 			}
-			return ""
+			return "", fmt.Errorf("malformed CRI image: invalid name")
 		}
 		rest, ok = skipProtoValue(data, wire)
 		if !ok {
-			return ""
+			return "", fmt.Errorf("malformed CRI image: invalid field value")
 		}
 		data = rest
 	}
-	return ""
+	return "", nil
 }
 
 func criStateName(state uint64) string {

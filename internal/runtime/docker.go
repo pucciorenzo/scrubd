@@ -13,35 +13,54 @@ import (
 
 func (c Collector) Docker() Inventory {
 	inv := Inventory{Runtime: NameDocker}
-	if _, err := os.Stat(c.paths.DockerSocket); err != nil {
-		inv.Warnings = append(inv.Warnings, fmt.Sprintf("docker socket unavailable: %v", err))
+	candidates := c.dockerSocketCandidates()
+	if len(candidates) == 0 {
+		inv.Warnings = append(inv.Warnings, "docker socket path not configured")
 		return inv
 	}
-
-	client := dockerHTTPClient(c.paths.DockerSocket)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	var containers []dockerContainer
-	if err := dockerGetJSON(ctx, client, "/containers/json?all=false", &containers); err != nil {
-		inv.Warnings = append(inv.Warnings, fmt.Sprintf("docker containers: %v", err))
-		return inv
-	}
-
-	inv.Available = true
-	inv.Containers = make([]Container, 0, len(containers))
-	for _, container := range containers {
-		normalized := container.toContainer()
-		if container.ID != "" {
-			var details dockerContainerInspect
-			path := fmt.Sprintf("/containers/%s/json", container.ID)
-			if err := dockerGetJSON(ctx, client, path, &details); err != nil {
-				inv.Warnings = append(inv.Warnings, fmt.Sprintf("docker inspect %s: %v", shortID(container.ID), err))
+	var missing []string
+	for _, socketPath := range candidates {
+		if _, err := os.Stat(socketPath); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, socketPath)
 			} else {
-				normalized.PID = details.State.PID
+				inv.Warnings = append(inv.Warnings, socketStatWarning("docker", socketPath, err))
 			}
+			continue
 		}
-		inv.Containers = append(inv.Containers, normalized)
+
+		client := dockerHTTPClient(socketPath)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		var containers []dockerContainer
+		err := dockerGetJSON(ctx, client, "/containers/json?all=true", &containers)
+		cancel()
+		if err != nil {
+			inv.Warnings = append(inv.Warnings, dockerAPIWarning(socketPath, err))
+			continue
+		}
+
+		inv.Available = true
+		inv.Containers = make([]Container, 0, len(containers))
+		for _, container := range containers {
+			normalized := container.toContainer()
+			if container.ID != "" {
+				var details dockerContainerInspect
+				path := fmt.Sprintf("/containers/%s/json", container.ID)
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				err := dockerGetJSON(ctx, client, path, &details)
+				cancel()
+				if err != nil {
+					inv.Warnings = append(inv.Warnings, fmt.Sprintf("docker inspect %s: %v", shortID(container.ID), err))
+				} else {
+					normalized.PID = details.State.PID
+				}
+			}
+			inv.Containers = append(inv.Containers, normalized)
+		}
+		return inv
+	}
+	if len(inv.Warnings) == 0 && len(missing) > 0 {
+		inv.Warnings = append(inv.Warnings, socketsMissingWarning("docker", missing))
 	}
 	return inv
 }

@@ -1,6 +1,9 @@
 package runtime
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestValidName(t *testing.T) {
 	for _, name := range []Name{NameAuto, NameDocker, NameContainerd} {
@@ -24,5 +27,31 @@ func TestInventories(t *testing.T) {
 	}
 	if got := collector.Inventories(NameAuto); len(got) != 2 {
 		t.Fatalf("auto inventories len = %d, want 2", len(got))
+	}
+}
+
+func TestSocketCandidatesDeduplicatesAndSkipsEmpty(t *testing.T) {
+	got := socketCandidates("/run/docker.sock", []string{"", "/run/docker.sock", "/run/user/501/docker.sock"})
+	want := []string{"/run/docker.sock", "/run/user/501/docker.sock"}
+	if len(got) != len(want) {
+		t.Fatalf("candidates = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("candidates = %#v, want %#v", got, want)
+		}
+	}
+}
+
+func TestRootlessSocketPaths(t *testing.T) {
+	runtimeDir := filepath.Join("run", "user", "501")
+	docker := rootlessDockerSockets(runtimeDir, 501)
+	if len(docker) != 2 || docker[0] != filepath.Join(runtimeDir, "docker.sock") || docker[1] != "/run/user/501/docker.sock" {
+		t.Fatalf("docker sockets = %#v", docker)
+	}
+
+	containerd := rootlessContainerdSockets(runtimeDir, 501)
+	if len(containerd) != 2 || containerd[0] != filepath.Join(runtimeDir, "containerd", "containerd.sock") || containerd[1] != "/run/user/501/containerd/containerd.sock" {
+		t.Fatalf("containerd sockets = %#v", containerd)
 	}
 }

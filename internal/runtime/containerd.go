@@ -13,25 +13,41 @@ import (
 
 func (c Collector) Containerd() Inventory {
 	inv := Inventory{Runtime: NameContainerd}
-	if _, err := os.Stat(c.paths.ContainerdSocket); err != nil {
-		inv.Warnings = append(inv.Warnings, fmt.Sprintf("containerd socket unavailable: %v", err))
+	candidates := c.containerdSocketCandidates()
+	if len(candidates) == 0 {
+		inv.Warnings = append(inv.Warnings, "containerd socket path not configured")
 		return inv
 	}
+	var missing []string
+	for _, socketPath := range candidates {
+		if _, err := os.Stat(socketPath); err != nil {
+			if os.IsNotExist(err) {
+				missing = append(missing, socketPath)
+			} else {
+				inv.Warnings = append(inv.Warnings, socketStatWarning("containerd", socketPath, err))
+			}
+			continue
+		}
 
-	conn, err := net.DialTimeout("unix", c.paths.ContainerdSocket, 2*time.Second)
-	if err != nil {
-		inv.Warnings = append(inv.Warnings, fmt.Sprintf("containerd socket connect: %v", err))
-		return inv
-	}
-	_ = conn.Close()
+		conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
+		if err != nil {
+			inv.Warnings = append(inv.Warnings, socketConnectWarning("containerd", socketPath, err))
+			continue
+		}
+		_ = conn.Close()
 
-	inv.Available = true
-	containers, err := listContainerdCRIContainers(c.paths.ContainerdSocket)
-	if err != nil {
-		inv.Warnings = append(inv.Warnings, fmt.Sprintf("containerd CRI inventory: %v", err))
+		containers, err := listContainerdCRIContainers(socketPath)
+		if err != nil {
+			inv.Warnings = append(inv.Warnings, criInventoryWarning(err))
+			return inv
+		}
+		inv.Available = true
+		inv.Containers = containers
 		return inv
 	}
-	inv.Containers = containers
+	if len(inv.Warnings) == 0 && len(missing) > 0 {
+		inv.Warnings = append(inv.Warnings, socketsMissingWarning("containerd", missing))
+	}
 	return inv
 }
 
@@ -61,7 +77,7 @@ func listContainerdCRIContainers(socketPath string) ([]Container, error) {
 			lastErr = err
 			continue
 		}
-		return parseCRIListContainersResponse(response), nil
+		return parseCRIListContainersResponse(response)
 	}
 	return nil, lastErr
 }
