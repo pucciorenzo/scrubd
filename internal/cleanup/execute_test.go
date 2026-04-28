@@ -38,6 +38,26 @@ func TestExecuteWithoutForceSkipsDestructiveStep(t *testing.T) {
 	}
 }
 
+func TestExecuteWithoutForceRunsNonDestructiveStep(t *testing.T) {
+	var buf bytes.Buffer
+	runner := &recordingRunner{}
+	steps := []Step{{Description: "show status", Command: []string{"true"}}}
+
+	results, err := Execute(&buf, steps, Options{Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || !results[0].Executed {
+		t.Fatalf("unexpected results: %#v", results)
+	}
+	if len(runner.commands) != 1 || runner.commands[0][0] != "true" {
+		t.Fatalf("unexpected commands: %#v", runner.commands)
+	}
+	if got := buf.String(); !contains(got, "status: executed") {
+		t.Fatalf("output missing executed status:\n%s", got)
+	}
+}
+
 func TestExecuteForceRunsStep(t *testing.T) {
 	var buf bytes.Buffer
 	runner := &recordingRunner{}

@@ -66,14 +66,6 @@ func Execute(w io.Writer, steps []Step, options Options) ([]Result, error) {
 			continue
 		}
 
-		if !options.Force {
-			if _, err := fmt.Fprintln(w, "  status: skipped, requires --force"); err != nil {
-				return results, err
-			}
-			results = append(results, result)
-			continue
-		}
-
 		if err := options.Runner.Run(step.Command); err != nil {
 			result.Error = err.Error()
 			results = append(results, result)
