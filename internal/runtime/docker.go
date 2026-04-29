@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -145,10 +146,15 @@ func trimDockerNames(names []string) []string {
 }
 
 func firstDockerNetwork(networks map[string]dockerEndpoint) string {
+	names := make([]string, 0, len(networks))
 	for name := range networks {
-		return name
+		names = append(names, name)
 	}
-	return ""
+	sort.Strings(names)
+	if len(names) == 0 {
+		return ""
+	}
+	return names[0]
 }
 
 func shortID(id string) string {
