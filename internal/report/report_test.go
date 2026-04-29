@@ -92,6 +92,11 @@ func TestWriteJSON(t *testing.T) {
 func TestWriteText(t *testing.T) {
 	leak := detect.NewLeak(detect.LeakTypeVethInterface, detect.SeverityHigh, "veth0", "test reason")
 	leak.SafeAction = "ip link delete veth0"
+	leak.CleanupPlan = []cleanup.Step{{
+		Description: "delete veth interface veth0",
+		Command:     []string{"ip", "link", "delete", "veth0"},
+		Destructive: true,
+	}}
 	report := Report{
 		GeneratedAt: time.Unix(0, 0).UTC(),
 		Runtime:     runtimeinv.NameAuto,
@@ -106,7 +111,40 @@ func TestWriteText(t *testing.T) {
 	}
 
 	out := buf.String()
-	for _, want := range []string{"Container leak scan report", "[HIGH] orphaned_veth_interface", "suggested action: ip link delete veth0", "warnings:"} {
+	for _, want := range []string{
+		"Container leak scan report",
+		"[HIGH] orphaned_veth_interface",
+		"suggested action: ip link delete veth0",
+		"cleanup: available (1 step)",
+		"next step: run `scrubd cleanup " + leak.ID + " --dry-run`, confirm the interface is not attached to a live workload",
+		"warnings:",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestWriteTextShowsManualCleanupForPlanlessLeak(t *testing.T) {
+	leak := detect.NewLeak(detect.LeakTypeOverlaySnapshot, detect.SeverityLow, "/var/lib/docker/overlay2/snap", "snapshot is not mounted")
+	leak.SafeAction = "docker runtime garbage collection or manual snapshot review"
+	report := Report{
+		GeneratedAt: time.Unix(0, 0).UTC(),
+		Runtime:     runtimeinv.NameDocker,
+		Leaks:       []detect.Leak{leak},
+		Summary:     summarize(nil, []detect.Leak{leak}),
+	}
+
+	var buf bytes.Buffer
+	if err := WriteText(&buf, report); err != nil {
+		t.Fatal(err)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"cleanup: manual review required",
+		"next step: review runtime snapshot metadata and use runtime-supported garbage collection",
+	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)
 		}
@@ -135,7 +173,7 @@ func TestWriteExplain(t *testing.T) {
 		"namespace inode: 10",
 		"risk: verify owner first",
 		"suggested action: ip netns delete test ns",
-		"next step: run `scrubd cleanup " + leak.ID + " --dry-run`",
+		"next step: run `scrubd cleanup " + leak.ID + " --dry-run`, confirm no process, CNI plugin, or workload still owns the namespace",
 		"command: ip netns delete 'test ns'",
 	} {
 		if !strings.Contains(out, want) {
