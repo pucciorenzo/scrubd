@@ -2,6 +2,7 @@ package inspect
 
 type Inventory struct {
 	NetworkInterfaces []NetworkInterface `json:"network_interfaces"`
+	Routes            []Route            `json:"routes"`
 	NetworkNamespaces []NetworkNamespace `json:"network_namespaces"`
 	Mounts            []Mount            `json:"mounts"`
 	Snapshots         []Snapshot         `json:"snapshots"`
@@ -19,6 +20,15 @@ type NetworkInterface struct {
 	Kind             string   `json:"kind,omitempty"`
 	BridgePorts      []string `json:"bridge_ports,omitempty"`
 	BridgePortsKnown bool     `json:"bridge_ports_known,omitempty"`
+}
+
+type Route struct {
+	Interface   string `json:"interface"`
+	Destination string `json:"destination"`
+	Gateway     string `json:"gateway,omitempty"`
+	Flags       string `json:"flags,omitempty"`
+	Mask        string `json:"mask,omitempty"`
+	Source      string `json:"source"`
 }
 
 type NetworkNamespace struct {
@@ -62,6 +72,7 @@ type Process struct {
 
 type Paths struct {
 	NetClassDir           string
+	ProcNetRoute          string
 	NetNSDir              string
 	ProcDir               string
 	MountInfo             string
@@ -74,6 +85,7 @@ type Paths struct {
 func DefaultPaths() Paths {
 	return Paths{
 		NetClassDir:           "/sys/class/net",
+		ProcNetRoute:          "/proc/net/route",
 		NetNSDir:              "/var/run/netns",
 		ProcDir:               "/proc",
 		MountInfo:             "/proc/self/mountinfo",

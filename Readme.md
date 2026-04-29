@@ -8,6 +8,7 @@ The tool is read-only by default. Cleanup actions are explicit, argv-based, dry-
 
 - Inspect host resources:
   - network interfaces
+  - IPv4 route table entries
   - named and process network namespaces
   - mountinfo entries
   - Docker and containerd overlay snapshots
@@ -20,6 +21,7 @@ The tool is read-only by default. Cleanup actions are explicit, argv-based, dry-
 - Detect leak types:
   - orphaned veth interfaces
   - stale runtime-looking network bridges
+  - stale runtime-looking network routes
   - stale named network namespaces
   - abandoned container mounts
   - dangling overlay snapshots
@@ -201,6 +203,7 @@ make docker-build IMAGE=scrubd:0.1.0
 - `cleanup <leak-id>` without `--force` prints a plan and clearly skips destructive steps.
 - `cleanup <leak-id> --force` executes cleanup steps through `exec.Command`, not a shell.
 - Stale bridge findings do not get direct cleanup commands because bridge ownership can come from runtime network metadata, CNI state, or host configuration.
+- Stale route findings do not get direct cleanup commands because route ownership can come from runtime network metadata, CNI state, or host configuration.
 - Dangling overlay snapshots currently do not get a direct `rm` cleanup plan because snapshot directories can back images or stopped containers. The report recommends runtime garbage collection or manual metadata review.
 
 ## Detection Rules
@@ -230,6 +233,12 @@ ip netns delete <namespace>
 Function: `detect.DetectStaleNetworkBridges`
 
 Flags generated-looking runtime bridge names such as `br-*`, `cni*`, and `podman*` only when every selected runtime inventory is available, no running runtime containers are known, and the bridge has no attached bridge ports. Default bridges such as `docker0`, `cni0`, and `podman0` are skipped. No destructive cleanup command is generated because bridge ownership can come from runtime network metadata, CNI state, or host configuration.
+
+### Stale Network Routes
+
+Function: `detect.DetectStaleRoutes`
+
+Flags IPv4 route table entries from `/proc/net/route` when the route references a generated-looking runtime interface such as `br-*`, `cni*`, or `podman*` that is no longer present in host interface inventory. Default bridges such as `docker0`, `cni0`, and `podman0` are skipped. No destructive cleanup command is generated because route ownership can come from runtime network metadata, CNI state, or host configuration.
 
 ### Abandoned Container Mounts
 
@@ -285,6 +294,7 @@ internal/inspect/
   model.go             host inventory models and inspected paths
   inspect.go           host inventory orchestration
   network.go           network interface inspection
+  routes.go            IPv4 route table inspection
   namespace.go         network namespace inspection
   mounts.go            mountinfo parsing
   snapshots.go         Docker/containerd overlay snapshot inspection
@@ -339,6 +349,7 @@ internal/cleanup/
 - `inspect.NewDefaultCollector`: creates a host collector with default Linux paths.
 - `inspect.Collector.Inventory`: collects all host inventory sections.
 - `inspect.Collector.NetworkInterfaces`: lists interfaces and classifies interface kind.
+- `inspect.Collector.Routes`: reads IPv4 routes from `/proc/net/route`.
 - `inspect.Collector.NetworkNamespaces`: reads named and process network namespaces.
 - `inspect.Collector.Mounts`: reads and parses `/proc/self/mountinfo`.
 - `inspect.Collector.Snapshots`: reads Docker and containerd overlay snapshot directories.
@@ -350,6 +361,7 @@ internal/cleanup/
 - `detect.Detect`: runs every detection rule and sorts leaks by severity, type, and resource.
 - `detect.DetectOrphanVeth`: finds orphaned veth interfaces.
 - `detect.DetectStaleNetworkBridges`: finds runtime-looking bridges without attached ports or running containers.
+- `detect.DetectStaleRoutes`: finds routes pointing at missing runtime-looking interfaces.
 - `detect.DetectStaleNetworkNamespaces`: finds named netns entries without process inode matches.
 - `detect.DetectAbandonedMounts`: finds runtime mounts without known container references.
 - `detect.DetectDanglingOverlaySnapshots`: finds unmounted overlay snapshots without known container references.

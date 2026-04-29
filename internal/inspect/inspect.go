@@ -40,6 +40,10 @@ func (c Collector) inventory(goos string) Inventory {
 	inv.NetworkInterfaces = interfaces
 	addWarnings(warnings)
 
+	routes, warnings := c.Routes()
+	inv.Routes = routes
+	addWarnings(warnings)
+
 	namespaces, warnings := c.NetworkNamespaces()
 	inv.NetworkNamespaces = namespaces
 	addWarnings(warnings)
