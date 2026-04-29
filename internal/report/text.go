@@ -76,7 +76,28 @@ func WriteText(w io.Writer, report Report) error {
 				return err
 			}
 		}
+		if len(leak.CleanupPlan) > 0 {
+			if _, err := fmt.Fprintf(w, "  cleanup: available (%d step%s)\n", len(leak.CleanupPlan), plural(len(leak.CleanupPlan))); err != nil {
+				return err
+			}
+		} else {
+			if _, err := fmt.Fprintln(w, "  cleanup: manual review required"); err != nil {
+				return err
+			}
+		}
+		if next := explainNextStep(leak); next != "" {
+			if _, err := fmt.Fprintf(w, "  next step: %s\n", next); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
+}
+
+func plural(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
 }

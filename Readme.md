@@ -414,6 +414,8 @@ leaks: 3 (critical=0 high=1 medium=2 low=0)
   evidence: runtime inventories: all selected runtimes available
   evidence: running containers: 0
   risk: delete only after confirming no workload uses this interface
+  cleanup: available (1 step)
+  next step: run `scrubd cleanup leak-d2ffeb6af46d --dry-run`, confirm the interface is not attached to a live workload, then rerun with `--force` only if the resource is safe to modify
 
 [MEDIUM] abandoned_container_mount
   id: leak-d4e12caa565a
@@ -423,6 +425,8 @@ leaks: 3 (critical=0 high=1 medium=2 low=0)
   evidence: filesystem: tmpfs
   evidence: known container reference: none
   risk: unmount only after confirming no runtime task or process still uses this mount
+  cleanup: available (1 step)
+  next step: run `scrubd cleanup leak-d4e12caa565a --dry-run`, confirm no process or runtime task is using the mount, then rerun with `--force` only if the resource is safe to modify
 
 [MEDIUM] stale_network_namespace
   id: leak-5c5479969eb4
@@ -432,6 +436,8 @@ leaks: 3 (critical=0 high=1 medium=2 low=0)
   evidence: namespace source: netns
   evidence: matching process namespace: none
   risk: delete only after confirming no CNI plugin or workload still owns this namespace
+  cleanup: available (1 step)
+  next step: run `scrubd cleanup leak-5c5479969eb4 --dry-run`, confirm no process, CNI plugin, or workload still owns the namespace, then rerun with `--force` only if the resource is safe to modify
 ```
 
 ## JSON Output

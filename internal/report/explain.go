@@ -62,7 +62,7 @@ func WriteExplain(w io.Writer, leak detect.Leak) error {
 
 func explainNextStep(leak detect.Leak) string {
 	if len(leak.CleanupPlan) > 0 {
-		return fmt.Sprintf("run `scrubd cleanup %s --dry-run`, review the command and evidence, then rerun with `--force` only if the resource is safe to modify", leak.ID)
+		return fmt.Sprintf("run `scrubd cleanup %s --dry-run`, %s, then rerun with `--force` only if the resource is safe to modify", leak.ID, cleanupReviewGuidance(leak.Type))
 	}
 
 	switch leak.Type {
@@ -73,5 +73,22 @@ func explainNextStep(leak detect.Leak) string {
 			return "review the suggested action manually; scrubd does not have a direct cleanup plan for this finding"
 		}
 		return "review the evidence manually; scrubd does not have a direct cleanup plan for this finding"
+	}
+}
+
+func cleanupReviewGuidance(leakType detect.LeakType) string {
+	switch leakType {
+	case detect.LeakTypeVethInterface:
+		return "confirm the interface is not attached to a live workload"
+	case detect.LeakTypeNetworkNS:
+		return "confirm no process, CNI plugin, or workload still owns the namespace"
+	case detect.LeakTypeMount:
+		return "confirm no process or runtime task is using the mount"
+	case detect.LeakTypeCgroup:
+		return "confirm the cgroup is empty and no runtime still owns it"
+	case detect.LeakTypeRuntimeProcess:
+		return "confirm the helper process is not attached to a live workload"
+	default:
+		return "review the command and evidence"
 	}
 }
