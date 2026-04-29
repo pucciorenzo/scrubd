@@ -71,6 +71,21 @@ func TestDockerInventoryIncludesStoppedContainers(t *testing.T) {
 	}
 }
 
+func TestDockerContainerUsesDeterministicNetworkMode(t *testing.T) {
+	container := dockerContainer{
+		NetworkSettings: dockerNetworkInfo{Networks: map[string]dockerEndpoint{
+			"zeta":   {NetworkID: "net-z"},
+			"bridge": {NetworkID: "net-b"},
+			"alpha":  {NetworkID: "net-a"},
+		}},
+	}
+
+	got := container.toContainer().NetworkMode
+	if got != "alpha" {
+		t.Fatalf("network mode = %q, want alphabetically first network", got)
+	}
+}
+
 func TestDockerInventoryFallsBackToRootlessSocket(t *testing.T) {
 	socketPath := tempSocketPath(t, "docker.sock")
 	server := newUnixHTTPServer(t, socketPath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
