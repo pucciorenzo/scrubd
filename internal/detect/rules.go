@@ -367,44 +367,52 @@ func knownContainerIDs(inventories []runtimeinv.Inventory) []string {
 }
 
 func containerMountCandidate(mount inspect.Mount) bool {
-	fingerprint := mountFingerprint(mount)
-	return dockerOverlayMountCandidate(fingerprint) ||
-		containerdOverlayMountCandidate(fingerprint)
+	return dockerOverlayMountCandidate(mount.MountPoint) ||
+		containerdOverlayMountCandidate(mount.MountPoint)
 }
 
-func dockerOverlayMountCandidate(fingerprint string) bool {
-	fingerprint = strings.ToLower(fingerprint)
-	return strings.Contains(fingerprint, "/overlay2/") &&
-		strings.Contains(fingerprint, "/merged")
+func dockerOverlayMountCandidate(path string) bool {
+	return pathHasSegment(path, "overlay2") && pathLastSegment(path) == "merged"
 }
 
-func containerdOverlayMountCandidate(fingerprint string) bool {
-	fingerprint = strings.ToLower(fingerprint)
-	return strings.Contains(fingerprint, "/io.containerd.snapshotter.v1.overlayfs/snapshots/") &&
-		strings.Contains(fingerprint, "/fs")
+func containerdOverlayMountCandidate(path string) bool {
+	return pathHasSegment(path, "io.containerd.snapshotter.v1.overlayfs") &&
+		pathHasSegment(path, "snapshots") &&
+		pathLastSegment(path) == "fs"
 }
 
 func overlaySnapshotCandidate(snapshot inspect.Snapshot) bool {
-	path := strings.ToLower(snapshot.Path)
 	switch snapshot.Runtime {
 	case "docker":
-		return strings.Contains(path, "/overlay2/")
+		return pathHasSegment(snapshot.Path, "overlay2")
 	case "containerd":
-		return strings.Contains(path, "/io.containerd.snapshotter.v1.overlayfs/snapshots/")
+		return pathHasSegment(snapshot.Path, "io.containerd.snapshotter.v1.overlayfs") &&
+			pathHasSegment(snapshot.Path, "snapshots")
 	default:
 		return false
 	}
 }
 
 func containerCgroupCandidate(path string) bool {
-	path = strings.ToLower(path)
-	if strings.HasSuffix(path, ".service") || strings.HasSuffix(path, ".socket") {
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".service") || strings.HasSuffix(lower, ".socket") {
 		return false
 	}
-	if strings.Contains(path, "kubepods") {
-		return strings.Contains(path, "/pod")
+	segments := pathSegments(lower)
+	if pathHasSegment(lower, "kubepods") || pathHasSegment(lower, "kubepods.slice") || pathHasSegmentPrefix(lower, "kubepods-") {
+		for _, segment := range segments {
+			if strings.HasPrefix(segment, "pod") {
+				return true
+			}
+		}
+		return false
 	}
-	return containsAny(path, "docker", "containerd", "libpod")
+	for _, segment := range segments {
+		if runtimeCgroupSegment(segment) {
+			return true
+		}
+	}
+	return false
 }
 
 func mountFingerprint(mount inspect.Mount) string {
@@ -427,11 +435,11 @@ func runtimeProcessCandidate(process inspect.Process, runtimes []runtimeinv.Inve
 		}
 		switch inv.Runtime {
 		case runtimeinv.NameDocker:
-			if strings.Contains(command, "docker-proxy") || command == "runc" {
+			if strings.Contains(command, "docker-proxy") || dockerRuncProcess(process) {
 				return true
 			}
 		case runtimeinv.NameContainerd:
-			if strings.Contains(command, "containerd-shim") || command == "runc" {
+			if strings.Contains(command, "containerd-shim") || containerdRuncProcess(process) {
 				return true
 			}
 		}
@@ -446,7 +454,11 @@ func processFingerprint(process inspect.Process) string {
 
 func snapshotMounted(snapshot inspect.Snapshot, mounts []inspect.Mount) bool {
 	for _, mount := range mounts {
-		if strings.Contains(mountFingerprint(mount), snapshot.Path) {
+		if pathHasPrefixBoundary(mount.MountPoint, snapshot.Path) ||
+			pathHasPrefixBoundary(mount.Root, snapshot.Path) ||
+			pathHasPrefixBoundary(mount.Source, snapshot.Path) ||
+			mountOptionsReferencePath(mount.Options, snapshot.Path) ||
+			mountOptionsReferencePath(mount.SuperOpts, snapshot.Path) {
 			return true
 		}
 	}
@@ -466,14 +478,98 @@ func referencesAnyContainer(value string, ids []string) bool {
 	return false
 }
 
-func containsAny(value string, needles ...string) bool {
-	value = strings.ToLower(value)
-	for _, needle := range needles {
-		if strings.Contains(value, strings.ToLower(needle)) {
+func runtimeCgroupSegment(segment string) bool {
+	switch {
+	case segment == "docker", segment == "containerd", segment == "libpod":
+		return true
+	case strings.HasPrefix(segment, "docker-") && strings.HasSuffix(segment, ".scope"):
+		return true
+	case strings.HasPrefix(segment, "containerd-") && strings.HasSuffix(segment, ".scope"):
+		return true
+	case strings.HasPrefix(segment, "libpod-") && strings.HasSuffix(segment, ".scope"):
+		return true
+	default:
+		return false
+	}
+}
+
+func dockerRuncProcess(process inspect.Process) bool {
+	return runcProcessWithContext(process, "docker")
+}
+
+func containerdRuncProcess(process inspect.Process) bool {
+	return runcProcessWithContext(process, "containerd")
+}
+
+func runcProcessWithContext(process inspect.Process, runtimeName string) bool {
+	if strings.ToLower(process.Command) != "runc" {
+		return false
+	}
+	fingerprint := strings.ToLower(processFingerprint(process))
+	return strings.Contains(fingerprint, runtimeName)
+}
+
+func mountOptionsReferencePath(options []string, path string) bool {
+	for _, option := range options {
+		for _, value := range strings.Split(option, ":") {
+			if keyEnd := strings.IndexByte(value, '='); keyEnd >= 0 {
+				value = value[keyEnd+1:]
+			}
+			if pathHasPrefixBoundary(value, path) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func pathSegments(path string) []string {
+	parts := strings.Split(strings.ToLower(path), "/")
+	segments := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			segments = append(segments, part)
+		}
+	}
+	return segments
+}
+
+func pathHasSegment(path, segment string) bool {
+	segment = strings.ToLower(segment)
+	for _, item := range pathSegments(path) {
+		if item == segment {
 			return true
 		}
 	}
 	return false
+}
+
+func pathHasSegmentPrefix(path, prefix string) bool {
+	prefix = strings.ToLower(prefix)
+	for _, item := range pathSegments(path) {
+		if strings.HasPrefix(item, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func pathLastSegment(path string) string {
+	segments := pathSegments(path)
+	if len(segments) == 0 {
+		return ""
+	}
+	return segments[len(segments)-1]
+}
+
+func pathHasPrefixBoundary(path, prefix string) bool {
+	path = strings.TrimRight(strings.ToLower(strings.TrimSpace(path)), "/")
+	prefix = strings.TrimRight(strings.ToLower(strings.TrimSpace(prefix)), "/")
+	if path == "" || prefix == "" {
+		return false
+	}
+	return path == prefix || strings.HasPrefix(path, prefix+"/")
 }
 
 func nsName(path string) string {

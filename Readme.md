@@ -224,7 +224,7 @@ ip netns delete <namespace>
 
 Function: `detect.DetectAbandonedMounts`
 
-Flags Docker `overlay2/.../merged` and containerd `overlayfs/snapshots/.../fs` mounts when no known container ID appears in the mount fingerprint. Broad runtime directory mounts are skipped to avoid unsafe cleanup suggestions. The cleanup plan uses:
+Flags Docker `overlay2/.../merged` and containerd `overlayfs/snapshots/.../fs` mounts when the mount point matches those path segments exactly and no known container ID appears in the mount fingerprint. Broad runtime directory mounts and suffix lookalikes such as `merged-backup` or `fs-old` are skipped to avoid unsafe cleanup suggestions. The cleanup plan uses:
 
 ```bash
 umount <mount-point>
@@ -234,13 +234,13 @@ umount <mount-point>
 
 Function: `detect.DetectDanglingOverlaySnapshots`
 
-Flags recognized Docker/containerd overlay snapshot directories when they are not mounted and no known container ID appears in the snapshot path. Unknown snapshot runtimes are skipped. No destructive cleanup command is generated.
+Flags recognized Docker/containerd overlay snapshot directories when their path matches runtime snapshot path segments, they are not mounted, and no known container ID appears in the snapshot path. Mount correlation uses path-boundary checks so sibling snapshot IDs such as `12` and `123` are not confused. Unknown snapshot runtimes are skipped. No destructive cleanup command is generated.
 
 ### Stale Cgroups
 
 Function: `detect.DetectStaleCgroups`
 
-Flags runtime-looking cgroup paths, such as container scopes, `kubepods`, or `libpod`, when the cgroup process count is known to be zero and no known container ID appears in the path. Docker/containerd systemd service and socket units are skipped. The cleanup plan uses:
+Flags runtime-looking cgroup paths, such as container scopes, pod cgroups under `kubepods`, or `libpod`, when the cgroup process count is known to be zero and no known container ID appears in the path. Matching is segment-based so unrelated names containing strings like `docker` are skipped. Docker/containerd systemd service and socket units are also skipped. The cleanup plan uses:
 
 ```bash
 rmdir /sys/fs/cgroup<path>
@@ -250,7 +250,7 @@ rmdir /sys/fs/cgroup<path>
 
 Function: `detect.DetectOrphanRuntimeProcesses`
 
-Flags helper processes for selected available runtimes, such as `containerd-shim*`, `docker-proxy`, and `runc`, when their command line has no known container ID reference. This avoids Docker-only scans reporting containerd helpers. The cleanup plan uses:
+Flags helper processes for selected available runtimes, such as `containerd-shim*`, `docker-proxy`, and runtime-contextual `runc`, when their command line has no known container ID reference. Generic `runc` commands without Docker or containerd context are skipped. This avoids Docker-only scans reporting containerd helpers. The cleanup plan uses:
 
 ```bash
 kill -TERM <pid>
