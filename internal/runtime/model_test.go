@@ -6,13 +6,13 @@ import (
 )
 
 func TestValidName(t *testing.T) {
-	for _, name := range []Name{NameAuto, NameDocker, NameContainerd} {
+	for _, name := range []Name{NameAuto, NameDocker, NameContainerd, NamePodman} {
 		if !ValidName(name) {
 			t.Fatalf("ValidName(%q) = false", name)
 		}
 	}
-	if ValidName("podman") {
-		t.Fatal("ValidName accepted podman")
+	if ValidName("cri-o") {
+		t.Fatal("ValidName accepted cri-o")
 	}
 }
 
@@ -25,8 +25,11 @@ func TestInventories(t *testing.T) {
 	if got := collector.Inventories(NameContainerd); len(got) != 1 || got[0].Runtime != NameContainerd {
 		t.Fatalf("containerd inventories = %#v", got)
 	}
-	if got := collector.Inventories(NameAuto); len(got) != 2 {
-		t.Fatalf("auto inventories len = %d, want 2", len(got))
+	if got := collector.Inventories(NamePodman); len(got) != 1 || got[0].Runtime != NamePodman {
+		t.Fatalf("podman inventories = %#v", got)
+	}
+	if got := collector.Inventories(NameAuto); len(got) != 3 {
+		t.Fatalf("auto inventories len = %d, want 3", len(got))
 	}
 }
 
@@ -53,5 +56,10 @@ func TestRootlessSocketPaths(t *testing.T) {
 	containerd := rootlessContainerdSockets(runtimeDir, 501)
 	if len(containerd) != 2 || containerd[0] != filepath.Join(runtimeDir, "containerd", "containerd.sock") || containerd[1] != "/run/user/501/containerd/containerd.sock" {
 		t.Fatalf("containerd sockets = %#v", containerd)
+	}
+
+	podman := rootlessPodmanSockets(runtimeDir, 501)
+	if len(podman) != 2 || podman[0] != filepath.Join(runtimeDir, "podman", "podman.sock") || podman[1] != "/run/user/501/podman/podman.sock" {
+		t.Fatalf("podman sockets = %#v", podman)
 	}
 }

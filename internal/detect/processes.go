@@ -70,6 +70,10 @@ func runtimeProcessCandidate(process inspect.Process, runtimes []runtimeinv.Inve
 			if strings.Contains(command, "containerd-shim") || containerdRuncProcess(process) {
 				return true
 			}
+		case runtimeinv.NamePodman:
+			if strings.Contains(command, "conmon") || podmanRuncProcess(process) {
+				return true
+			}
 		}
 	}
 	return false
@@ -86,6 +90,10 @@ func dockerRuncProcess(process inspect.Process) bool {
 
 func containerdRuncProcess(process inspect.Process) bool {
 	return runcProcessWithContext(process, "containerd")
+}
+
+func podmanRuncProcess(process inspect.Process) bool {
+	return runcProcessWithContext(process, "podman") || runcProcessWithContext(process, "libpod")
 }
 
 func runcProcessWithContext(process inspect.Process, runtimeName string) bool {

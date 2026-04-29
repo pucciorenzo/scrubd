@@ -1,6 +1,6 @@
 # Scrubd
 
-Scrubd is a Go CLI for finding leaked container-runtime resources on a Linux host. It inspects host state, collects Docker/containerd runtime inventory, correlates resources with running containers, and reports likely leftovers with evidence and cleanup guidance.
+Scrubd is a Go CLI for finding leaked container-runtime resources on a Linux host. It inspects host state, collects Docker/containerd/Podman runtime inventory, correlates resources with running containers, and reports likely leftovers with evidence and cleanup guidance.
 
 The tool is read-only by default. Cleanup actions are explicit, argv-based, dry-run capable, and require `--force` before destructive execution.
 
@@ -16,6 +16,7 @@ The tool is read-only by default. Cleanup actions are explicit, argv-based, dry-
 - Collect runtime inventory:
   - Docker containers and container PIDs from `/var/run/docker.sock`
   - containerd CRI containers from `/run/containerd/containerd.sock`
+  - Podman containers and container PIDs from `/run/podman/podman.sock`
 - Detect leak types:
   - orphaned veth interfaces
   - stale named network namespaces
@@ -41,6 +42,7 @@ go run ./cmd/scrubd scan
 go run ./cmd/scrubd scan --json
 go run ./cmd/scrubd scan --runtime docker
 go run ./cmd/scrubd scan --runtime containerd
+go run ./cmd/scrubd scan --runtime podman
 go run ./cmd/scrubd scan --min-severity high
 go run ./cmd/scrubd explain <leak-id>
 go run ./cmd/scrubd explain <leak-id> --runtime docker
@@ -94,6 +96,7 @@ Supported runtime values:
 - `auto`
 - `docker`
 - `containerd`
+- `podman`
 
 Supported minimum severity values:
 
@@ -191,7 +194,7 @@ make docker-build IMAGE=scrubd:0.1.0
 
 - `scan` and `explain` are read-only.
 - Runtime-correlated detections are skipped when no runtime inventory is
-  available, because Docker/containerd socket or permission failures make
+  available, because Docker/containerd/Podman socket or permission failures make
   orphan correlation unsafe.
 - `cleanup <leak-id> --dry-run` prints commands without executing them.
 - `cleanup <leak-id>` without `--force` prints a plan and clearly skips destructive steps.
@@ -250,7 +253,7 @@ rmdir /sys/fs/cgroup<path>
 
 Function: `detect.DetectOrphanRuntimeProcesses`
 
-Flags helper processes for selected available runtimes, such as `containerd-shim*`, `docker-proxy`, and runtime-contextual `runc`, when their command line has no known container ID reference. Generic `runc` commands without Docker or containerd context are skipped. This avoids Docker-only scans reporting containerd helpers. The cleanup plan uses:
+Flags helper processes for selected available runtimes, such as `containerd-shim*`, `docker-proxy`, Podman `conmon`, and runtime-contextual `runc`, when their command line has no known container ID reference. Generic `runc` commands without Docker, containerd, Podman, or libpod context are skipped. This avoids Docker-only scans reporting helpers from other runtimes. The cleanup plan uses:
 
 ```bash
 kill -TERM <pid>
@@ -267,6 +270,7 @@ internal/runtime/
   collector.go         runtime collector dispatch
   docker.go            Docker socket inventory and per-container inspect
   containerd.go        containerd CRI inventory
+  podman.go            Podman socket inventory and per-container inspect
   cri_proto.go         minimal CRI protobuf response parser
 
 internal/inspect/
@@ -314,10 +318,11 @@ internal/cleanup/
 
 - `runtime.NewCollector`: creates a runtime collector with explicit paths.
 - `runtime.NewDefaultCollector`: creates a runtime collector with default socket paths.
-- `runtime.ValidName`: validates `auto`, `docker`, or `containerd`.
+- `runtime.ValidName`: validates `auto`, `docker`, `containerd`, or `podman`.
 - `runtime.Collector.Inventories`: dispatches runtime collection by selected runtime.
 - `runtime.Collector.Docker`: queries Docker `/containers/json?all=true` and per-container inspect over system or rootless Unix socket candidates.
 - `runtime.Collector.Containerd`: queries containerd CRI `ListContainers` over system or rootless Unix socket candidates.
+- `runtime.Collector.Podman`: queries Podman's Docker-compatible `/containers/json?all=true` API and per-container inspect over system or rootless Unix socket candidates.
 - Runtime warnings distinguish missing sockets, permission problems, connect timeouts, and CRI API unavailability.
 
 ### Host Inspection

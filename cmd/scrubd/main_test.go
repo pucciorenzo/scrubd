@@ -58,7 +58,7 @@ func TestRunUnknownCommandReturnsUsageError(t *testing.T) {
 }
 
 func TestRunScanRejectsInvalidRuntime(t *testing.T) {
-	err := runScan([]string{"--runtime", "podman"}, &bytes.Buffer{})
+	err := runScan([]string{"--runtime", "cri-o"}, &bytes.Buffer{})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -160,8 +160,8 @@ func TestBuildScanReportFiltersByMinimumSeverity(t *testing.T) {
 
 func TestRunScanJSONUsesBuilderOutput(t *testing.T) {
 	withBuildScanReportFunc(t, func(runtimeName runtimeinv.Name, minSeverity detect.Severity) report.Report {
-		if runtimeName != runtimeinv.NameContainerd {
-			t.Fatalf("runtimeName = %q, want containerd", runtimeName)
+		if runtimeName != runtimeinv.NamePodman {
+			t.Fatalf("runtimeName = %q, want podman", runtimeName)
 		}
 		if minSeverity != detect.SeverityMedium {
 			t.Fatalf("minSeverity = %q, want medium", minSeverity)
@@ -169,13 +169,13 @@ func TestRunScanJSONUsesBuilderOutput(t *testing.T) {
 		return report.Report{
 			SchemaVersion: report.SchemaVersion,
 			Runtime:       runtimeName,
-			Runtimes:      []runtimeinv.Inventory{{Runtime: runtimeinv.NameContainerd, Available: false}},
+			Runtimes:      []runtimeinv.Inventory{{Runtime: runtimeinv.NamePodman, Available: false}},
 			Warnings:      []string{"runtime warning"},
 		}
 	})
 
 	var buf bytes.Buffer
-	if err := runScan([]string{"--json", "--runtime", "containerd", "--min-severity", "medium"}, &buf); err != nil {
+	if err := runScan([]string{"--json", "--runtime", "podman", "--min-severity", "medium"}, &buf); err != nil {
 		t.Fatal(err)
 	}
 
@@ -183,8 +183,8 @@ func TestRunScanJSONUsesBuilderOutput(t *testing.T) {
 	if err := json.Unmarshal(buf.Bytes(), &out); err != nil {
 		t.Fatalf("json decode: %v", err)
 	}
-	if out.Runtime != runtimeinv.NameContainerd {
-		t.Fatalf("runtime = %q, want containerd", out.Runtime)
+	if out.Runtime != runtimeinv.NamePodman {
+		t.Fatalf("runtime = %q, want podman", out.Runtime)
 	}
 	if out.SchemaVersion != report.SchemaVersion {
 		t.Fatalf("schema version = %q", out.SchemaVersion)
