@@ -220,6 +220,30 @@ func TestDetectAbandonedMountsSkipsBroadRuntimeDirectoryMount(t *testing.T) {
 	}
 }
 
+func TestDetectAbandonedMountsSkipsPathLookalikes(t *testing.T) {
+	input := Input{
+		Host: inspect.Inventory{Mounts: []inspect.Mount{
+			{
+				ID:         "42",
+				MountPoint: "/var/lib/docker/overlay2/leaked/merged-backup",
+				FSType:     "overlay",
+				Source:     "overlay",
+			},
+			{
+				ID:         "43",
+				MountPoint: "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/12/fs-old",
+				FSType:     "overlay",
+				Source:     "overlay",
+			},
+		}},
+		Runtimes: availableRuntimeInventory(),
+	}
+
+	if leaks := DetectAbandonedMounts(input); len(leaks) != 0 {
+		t.Fatalf("len(leaks) = %d, want 0 for mount path lookalikes: %#v", len(leaks), leaks)
+	}
+}
+
 func TestDetectAbandonedMountsSkipsRunningContainerReference(t *testing.T) {
 	const id = "abcdef1234567890"
 	input := Input{
@@ -325,6 +349,59 @@ func TestDetectDanglingOverlaySnapshotsSkipsMountedSnapshot(t *testing.T) {
 
 	if leaks := DetectDanglingOverlaySnapshots(input); len(leaks) != 0 {
 		t.Fatalf("len(leaks) = %d, want 0: %#v", len(leaks), leaks)
+	}
+}
+
+func TestDetectDanglingOverlaySnapshotsSkipsSnapshotReferencedByMountOptions(t *testing.T) {
+	path := "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/12"
+	input := Input{
+		Host: inspect.Inventory{
+			Snapshots: []inspect.Snapshot{{Runtime: "containerd", ID: "12", Path: path}},
+			Mounts: []inspect.Mount{{
+				MountPoint: "/mnt/merged",
+				FSType:     "overlay",
+				Source:     "overlay",
+				SuperOpts:  []string{"lowerdir=" + path + "/fs:/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/11/fs"},
+			}},
+		},
+		Runtimes: availableRuntimeInventory(),
+	}
+
+	if leaks := DetectDanglingOverlaySnapshots(input); len(leaks) != 0 {
+		t.Fatalf("len(leaks) = %d, want 0 for snapshot referenced by mount options: %#v", len(leaks), leaks)
+	}
+}
+
+func TestDetectDanglingOverlaySnapshotsDoesNotTreatPrefixSiblingAsMounted(t *testing.T) {
+	path := "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots/12"
+	input := Input{
+		Host: inspect.Inventory{
+			Snapshots: []inspect.Snapshot{{Runtime: "containerd", ID: "12", Path: path}},
+			Mounts: []inspect.Mount{{
+				MountPoint: path + "3/fs",
+				FSType:     "overlay",
+				Source:     "overlay",
+			}},
+		},
+		Runtimes: availableRuntimeInventory(),
+	}
+
+	if leaks := DetectDanglingOverlaySnapshots(input); len(leaks) != 1 {
+		t.Fatalf("len(leaks) = %d, want 1 when only prefix sibling is mounted: %#v", len(leaks), leaks)
+	}
+}
+
+func TestDetectDanglingOverlaySnapshotsSkipsPathLookalikes(t *testing.T) {
+	input := Input{
+		Host: inspect.Inventory{Snapshots: []inspect.Snapshot{
+			{Runtime: "docker", ID: "snap", Path: "/var/lib/docker/not-overlay2/snap"},
+			{Runtime: "containerd", ID: "12", Path: "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs-not/snapshots/12"},
+		}},
+		Runtimes: availableRuntimeInventory(),
+	}
+
+	if leaks := DetectDanglingOverlaySnapshots(input); len(leaks) != 0 {
+		t.Fatalf("len(leaks) = %d, want 0 for snapshot path lookalikes: %#v", len(leaks), leaks)
 	}
 }
 
@@ -501,6 +578,21 @@ func TestDetectStaleCgroupsSkipsRuntimeServiceUnits(t *testing.T) {
 	}
 }
 
+func TestDetectStaleCgroupsSkipsRuntimeSubstringLookalikes(t *testing.T) {
+	input := Input{
+		Host: inspect.Inventory{Cgroups: []inspect.Cgroup{
+			{HierarchyID: "0", Path: "/system.slice/mydockerbackup.scope", ProcessCountKnown: true},
+			{HierarchyID: "0", Path: "/system.slice/not-containerd-work.scope", ProcessCountKnown: true},
+			{HierarchyID: "0", Path: "/kubepods.slice/no-pod-here", ProcessCountKnown: true},
+		}},
+		Runtimes: availableRuntimeInventory(),
+	}
+
+	if leaks := DetectStaleCgroups(input); len(leaks) != 0 {
+		t.Fatalf("len(leaks) = %d, want 0 for cgroup substring lookalikes: %#v", len(leaks), leaks)
+	}
+}
+
 func TestDetectOrphanRuntimeProcesses(t *testing.T) {
 	input := Input{
 		Host: inspect.Inventory{Processes: []inspect.Process{
@@ -522,6 +614,36 @@ func TestDetectOrphanRuntimeProcesses(t *testing.T) {
 	}
 	if got := leaks[0].CleanupPlan[0].Command; len(got) != 3 || got[0] != "kill" || got[2] != "123" {
 		t.Fatalf("cleanup command = %#v", got)
+	}
+}
+
+func TestDetectOrphanRuntimeProcessesSkipsGenericRuncWithoutRuntimeContext(t *testing.T) {
+	input := Input{
+		Host: inspect.Inventory{Processes: []inspect.Process{{
+			PID:     123,
+			Command: "runc",
+			Args:    []string{"runc", "state", "some-id"},
+		}}},
+		Runtimes: []runtimeinv.Inventory{{Runtime: runtimeinv.NameContainerd, Available: true}},
+	}
+
+	if leaks := DetectOrphanRuntimeProcesses(input); len(leaks) != 0 {
+		t.Fatalf("len(leaks) = %d, want 0 for generic runc process: %#v", len(leaks), leaks)
+	}
+}
+
+func TestDetectOrphanRuntimeProcessesDetectsRuncWithRuntimeContext(t *testing.T) {
+	input := Input{
+		Host: inspect.Inventory{Processes: []inspect.Process{{
+			PID:     123,
+			Command: "runc",
+			Args:    []string{"runc", "--root", "/run/containerd/runc/k8s.io", "state", "leaked"},
+		}}},
+		Runtimes: []runtimeinv.Inventory{{Runtime: runtimeinv.NameContainerd, Available: true}},
+	}
+
+	if leaks := DetectOrphanRuntimeProcesses(input); len(leaks) != 1 {
+		t.Fatalf("len(leaks) = %d, want 1 contextual runc leak: %#v", len(leaks), leaks)
 	}
 }
 
