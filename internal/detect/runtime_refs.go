@@ -68,10 +68,36 @@ func referencesAnyRunningContainer(value string, ids []string) bool {
 }
 
 func referencesAnyContainer(value string, ids []string) bool {
+	value = strings.ToLower(value)
 	for _, id := range ids {
-		if strings.Contains(value, id) {
+		id = strings.ToLower(strings.TrimSpace(id))
+		if id != "" && containsContainerIDReference(value, id) {
 			return true
 		}
 	}
 	return false
+}
+
+func containsContainerIDReference(value, id string) bool {
+	offset := 0
+	for {
+		idx := strings.Index(value[offset:], id)
+		if idx < 0 {
+			return false
+		}
+		idx += offset
+		beforeOK := idx == 0 || !containerIDChar(value[idx-1])
+		after := idx + len(id)
+		afterOK := after == len(value) || !containerIDChar(value[after])
+		if beforeOK && afterOK {
+			return true
+		}
+		offset = idx + 1
+	}
+}
+
+func containerIDChar(value byte) bool {
+	return (value >= '0' && value <= '9') ||
+		(value >= 'a' && value <= 'z') ||
+		(value >= 'A' && value <= 'Z')
 }
