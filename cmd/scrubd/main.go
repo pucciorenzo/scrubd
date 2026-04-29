@@ -19,9 +19,9 @@ var buildScanReportFunc = buildScanReport
 const usageText = `scrubd detects leaked container runtime resources.
 
 Usage:
-  scrubd scan [--json] [--runtime docker|containerd|auto] [--min-severity low|medium|high|critical]
-  scrubd explain <leak-id> [--runtime docker|containerd|auto]
-  scrubd cleanup <leak-id> [--dry-run] [--force] [--runtime docker|containerd|auto]
+  scrubd scan [--json] [--runtime docker|containerd|podman|auto] [--min-severity low|medium|high|critical]
+  scrubd explain <leak-id> [--runtime docker|containerd|podman|auto]
+  scrubd cleanup <leak-id> [--dry-run] [--force] [--runtime docker|containerd|podman|auto]
 
 Commands:
   scan      scan host resources for likely leaks
@@ -77,7 +77,7 @@ func runScan(args []string, stdout io.Writer) error {
 	flags.SetOutput(io.Discard)
 
 	jsonOutput := flags.Bool("json", false, "emit JSON report")
-	runtimeName := flags.String("runtime", "auto", "runtime to inspect: docker, containerd, or auto")
+	runtimeName := flags.String("runtime", "auto", "runtime to inspect: docker, containerd, podman, or auto")
 	minSeverity := flags.String("min-severity", "low", "minimum leak severity to report: low, medium, high, or critical")
 
 	if err := flags.Parse(args); err != nil {

@@ -11,6 +11,7 @@ type Name string
 const (
 	NameDocker     Name = "docker"
 	NameContainerd Name = "containerd"
+	NamePodman     Name = "podman"
 	NameAuto       Name = "auto"
 )
 
@@ -36,6 +37,8 @@ type Paths struct {
 	DockerSockets     []string
 	ContainerdSocket  string
 	ContainerdSockets []string
+	PodmanSocket      string
+	PodmanSockets     []string
 }
 
 func DefaultPaths() Paths {
@@ -44,6 +47,8 @@ func DefaultPaths() Paths {
 		DockerSockets:     rootlessDockerSockets(os.Getenv("XDG_RUNTIME_DIR"), os.Getuid()),
 		ContainerdSocket:  "/run/containerd/containerd.sock",
 		ContainerdSockets: rootlessContainerdSockets(os.Getenv("XDG_RUNTIME_DIR"), os.Getuid()),
+		PodmanSocket:      "/run/podman/podman.sock",
+		PodmanSockets:     rootlessPodmanSockets(os.Getenv("XDG_RUNTIME_DIR"), os.Getuid()),
 	}
 }
 
@@ -65,6 +70,10 @@ func (c Collector) dockerSocketCandidates() []string {
 
 func (c Collector) containerdSocketCandidates() []string {
 	return socketCandidates(c.paths.ContainerdSocket, c.paths.ContainerdSockets)
+}
+
+func (c Collector) podmanSocketCandidates() []string {
+	return socketCandidates(c.paths.PodmanSocket, c.paths.PodmanSockets)
 }
 
 func socketCandidates(primary string, extra []string) []string {
@@ -102,9 +111,18 @@ func rootlessContainerdSockets(runtimeDir string, uid int) []string {
 	return socketCandidates("", sockets)
 }
 
+func rootlessPodmanSockets(runtimeDir string, uid int) []string {
+	var sockets []string
+	if runtimeDir != "" {
+		sockets = append(sockets, filepath.Join(runtimeDir, "podman", "podman.sock"))
+	}
+	sockets = append(sockets, filepath.Join("/run/user", strconv.Itoa(uid), "podman", "podman.sock"))
+	return socketCandidates("", sockets)
+}
+
 func ValidName(name Name) bool {
 	switch name {
-	case NameAuto, NameDocker, NameContainerd:
+	case NameAuto, NameDocker, NameContainerd, NamePodman:
 		return true
 	default:
 		return false

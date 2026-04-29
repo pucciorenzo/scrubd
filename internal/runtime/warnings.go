@@ -49,6 +49,17 @@ func dockerAPIWarning(path string, err error) string {
 	}
 }
 
+func podmanAPIWarning(path string, err error) string {
+	switch {
+	case errors.Is(err, os.ErrPermission):
+		return fmt.Sprintf("podman socket permission denied: %s", path)
+	case errors.Is(err, context.DeadlineExceeded), isTimeout(err):
+		return fmt.Sprintf("podman API timeout: %s", path)
+	default:
+		return fmt.Sprintf("podman API unavailable: %v", err)
+	}
+}
+
 func criInventoryWarning(err error) string {
 	if st, ok := status.FromError(err); ok {
 		switch st.Code() {

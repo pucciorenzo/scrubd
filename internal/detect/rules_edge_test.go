@@ -368,6 +368,41 @@ func TestDetectOrphanRuntimeProcessesEdgeCases(t *testing.T) {
 				}},
 			},
 		},
+		{
+			name: "detects podman conmon process",
+			input: Input{
+				Host: inspect.Inventory{Processes: []inspect.Process{{
+					PID:     123,
+					Command: "conmon",
+					Args:    []string{"conmon", "--cid", "leaked"},
+				}}},
+				Runtimes: []runtimeinv.Inventory{{Runtime: runtimeinv.NamePodman, Available: true}},
+			},
+			wantLeaks: 1,
+		},
+		{
+			name: "detects podman runc with libpod context",
+			input: Input{
+				Host: inspect.Inventory{Processes: []inspect.Process{{
+					PID:     123,
+					Command: "runc",
+					Args:    []string{"runc", "--root", "/run/user/1000/libpod/runc", "state", "leaked"},
+				}}},
+				Runtimes: []runtimeinv.Inventory{{Runtime: runtimeinv.NamePodman, Available: true}},
+			},
+			wantLeaks: 1,
+		},
+		{
+			name: "skips podman helper from unselected runtime",
+			input: Input{
+				Host: inspect.Inventory{Processes: []inspect.Process{{
+					PID:     123,
+					Command: "conmon",
+					Args:    []string{"conmon", "--cid", "leaked"},
+				}}},
+				Runtimes: []runtimeinv.Inventory{{Runtime: runtimeinv.NameDocker, Available: true}},
+			},
+		},
 	}
 
 	for _, tt := range tests {

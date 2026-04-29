@@ -77,9 +77,10 @@ Rebuild it on the Linux host with `make build` before scanning.
 
 Observed behavior:
 
-- `scan` in `auto` mode reported Docker available, containerd CRI unavailable,
-  and stayed conservative by reporting the stale named namespace and abandoned
-  overlay-looking mount while skipping global veth orphan checks.
+- `scan` in `auto` mode reported Docker available and unavailable runtimes
+  such as containerd or Podman as warnings, then stayed conservative by
+  reporting the stale named namespace and abandoned overlay-looking mount while
+  skipping global veth orphan checks.
 - `scan --runtime docker` detected the synthetic veth pair, stale named
   namespace, and abandoned overlay-looking mount.
 - `cleanup <mount-leak-id> --dry-run` printed the expected `umount` command
