@@ -19,6 +19,7 @@ The tool is read-only by default. Cleanup actions are explicit, argv-based, dry-
   - Podman containers and container PIDs from `/run/podman/podman.sock`
 - Detect leak types:
   - orphaned veth interfaces
+  - stale runtime-looking network bridges
   - stale named network namespaces
   - abandoned container mounts
   - dangling overlay snapshots
@@ -199,6 +200,7 @@ make docker-build IMAGE=scrubd:0.1.0
 - `cleanup <leak-id> --dry-run` prints commands without executing them.
 - `cleanup <leak-id>` without `--force` prints a plan and clearly skips destructive steps.
 - `cleanup <leak-id> --force` executes cleanup steps through `exec.Command`, not a shell.
+- Stale bridge findings do not get direct cleanup commands because bridge ownership can come from runtime network metadata, CNI state, or host configuration.
 - Dangling overlay snapshots currently do not get a direct `rm` cleanup plan because snapshot directories can back images or stopped containers. The report recommends runtime garbage collection or manual metadata review.
 
 ## Detection Rules
@@ -222,6 +224,12 @@ Flags named namespaces from `/var/run/netns` when the namespace inode is known a
 ```bash
 ip netns delete <namespace>
 ```
+
+### Stale Network Bridges
+
+Function: `detect.DetectStaleNetworkBridges`
+
+Flags generated-looking runtime bridge names such as `br-*`, `cni*`, and `podman*` only when every selected runtime inventory is available, no running runtime containers are known, and the bridge has no attached bridge ports. Default bridges such as `docker0`, `cni0`, and `podman0` are skipped. No destructive cleanup command is generated because bridge ownership can come from runtime network metadata, CNI state, or host configuration.
 
 ### Abandoned Container Mounts
 
@@ -341,6 +349,7 @@ internal/cleanup/
 
 - `detect.Detect`: runs every detection rule and sorts leaks by severity, type, and resource.
 - `detect.DetectOrphanVeth`: finds orphaned veth interfaces.
+- `detect.DetectStaleNetworkBridges`: finds runtime-looking bridges without attached ports or running containers.
 - `detect.DetectStaleNetworkNamespaces`: finds named netns entries without process inode matches.
 - `detect.DetectAbandonedMounts`: finds runtime mounts without known container references.
 - `detect.DetectDanglingOverlaySnapshots`: finds unmounted overlay snapshots without known container references.

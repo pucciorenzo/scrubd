@@ -15,6 +15,7 @@ type Input struct {
 func Detect(input Input) []Leak {
 	var leaks []Leak
 	leaks = append(leaks, DetectOrphanVeth(input)...)
+	leaks = append(leaks, DetectStaleNetworkBridges(input)...)
 	leaks = append(leaks, DetectStaleNetworkNamespaces(input.Host)...)
 	leaks = append(leaks, DetectAbandonedMounts(input)...)
 	leaks = append(leaks, DetectDanglingOverlaySnapshots(input)...)

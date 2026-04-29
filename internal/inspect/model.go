@@ -11,12 +11,14 @@ type Inventory struct {
 }
 
 type NetworkInterface struct {
-	Name         string   `json:"name"`
-	Index        int      `json:"index"`
-	PeerIndex    int      `json:"peer_index,omitempty"`
-	HardwareAddr string   `json:"hardware_addr,omitempty"`
-	Flags        []string `json:"flags,omitempty"`
-	Kind         string   `json:"kind,omitempty"`
+	Name             string   `json:"name"`
+	Index            int      `json:"index"`
+	PeerIndex        int      `json:"peer_index,omitempty"`
+	HardwareAddr     string   `json:"hardware_addr,omitempty"`
+	Flags            []string `json:"flags,omitempty"`
+	Kind             string   `json:"kind,omitempty"`
+	BridgePorts      []string `json:"bridge_ports,omitempty"`
+	BridgePortsKnown bool     `json:"bridge_ports_known,omitempty"`
 }
 
 type NetworkNamespace struct {

@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -17,13 +18,16 @@ func (c Collector) NetworkInterfaces() ([]NetworkInterface, []string) {
 
 	out := make([]NetworkInterface, 0, len(interfaces))
 	for _, iface := range interfaces {
+		bridgePorts, bridgePortsKnown := c.interfaceBridgePorts(iface.Name)
 		out = append(out, NetworkInterface{
-			Name:         iface.Name,
-			Index:        iface.Index,
-			PeerIndex:    c.interfacePeerIndex(iface),
-			HardwareAddr: iface.HardwareAddr.String(),
-			Flags:        interfaceFlags(iface.Flags),
-			Kind:         interfaceKind(iface.Name),
+			Name:             iface.Name,
+			Index:            iface.Index,
+			PeerIndex:        c.interfacePeerIndex(iface),
+			HardwareAddr:     iface.HardwareAddr.String(),
+			Flags:            interfaceFlags(iface.Flags),
+			Kind:             c.interfaceKind(iface.Name),
+			BridgePorts:      bridgePorts,
+			BridgePortsKnown: bridgePortsKnown,
 		})
 	}
 
@@ -65,13 +69,35 @@ func interfaceFlags(flags net.Flags) []string {
 	return out
 }
 
-func interfaceKind(name string) string {
+func (c Collector) interfaceKind(name string) string {
+	if c.paths.NetClassDir != "" {
+		if _, err := os.Stat(filepath.Join(c.paths.NetClassDir, name, "bridge")); err == nil {
+			return "bridge"
+		}
+	}
 	switch {
 	case strings.HasPrefix(name, "veth"):
 		return "veth"
-	case strings.HasPrefix(name, "br-"), name == "docker0", strings.HasPrefix(name, "cni"):
+	case strings.HasPrefix(name, "br-"), name == "docker0", strings.HasPrefix(name, "cni"), strings.HasPrefix(name, "podman"):
 		return "bridge"
 	default:
 		return "unknown"
 	}
+}
+
+func (c Collector) interfaceBridgePorts(name string) ([]string, bool) {
+	if c.paths.NetClassDir == "" {
+		return nil, false
+	}
+	entries, err := os.ReadDir(filepath.Join(c.paths.NetClassDir, name, "brif"))
+	if err != nil {
+		return nil, false
+	}
+
+	ports := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		ports = append(ports, entry.Name())
+	}
+	sort.Strings(ports)
+	return ports, true
 }
