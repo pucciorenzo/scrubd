@@ -14,6 +14,7 @@ const (
 	LeakTypeVethInterface   LeakType = "orphaned_veth_interface"
 	LeakTypeNetworkBridge   LeakType = "stale_network_bridge"
 	LeakTypeRoute           LeakType = "stale_network_route"
+	LeakTypeCNIAllocation   LeakType = "stale_cni_allocation"
 	LeakTypeNetworkNS       LeakType = "stale_network_namespace"
 	LeakTypeOverlaySnapshot LeakType = "dangling_overlay_snapshot"
 	LeakTypeMount           LeakType = "abandoned_container_mount"

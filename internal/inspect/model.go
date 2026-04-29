@@ -3,6 +3,7 @@ package inspect
 type Inventory struct {
 	NetworkInterfaces []NetworkInterface `json:"network_interfaces"`
 	Routes            []Route            `json:"routes"`
+	CNIAllocations    []CNIAllocation    `json:"cni_allocations"`
 	NetworkNamespaces []NetworkNamespace `json:"network_namespaces"`
 	Mounts            []Mount            `json:"mounts"`
 	Snapshots         []Snapshot         `json:"snapshots"`
@@ -28,6 +29,14 @@ type Route struct {
 	Gateway     string `json:"gateway,omitempty"`
 	Flags       string `json:"flags,omitempty"`
 	Mask        string `json:"mask,omitempty"`
+	Source      string `json:"source"`
+}
+
+type CNIAllocation struct {
+	Network     string `json:"network"`
+	IP          string `json:"ip"`
+	Path        string `json:"path"`
+	ContainerID string `json:"container_id,omitempty"`
 	Source      string `json:"source"`
 }
 
@@ -73,6 +82,7 @@ type Process struct {
 type Paths struct {
 	NetClassDir           string
 	ProcNetRoute          string
+	CNIStateDir           string
 	NetNSDir              string
 	ProcDir               string
 	MountInfo             string
@@ -86,6 +96,7 @@ func DefaultPaths() Paths {
 	return Paths{
 		NetClassDir:           "/sys/class/net",
 		ProcNetRoute:          "/proc/net/route",
+		CNIStateDir:           "/var/lib/cni/networks",
 		NetNSDir:              "/var/run/netns",
 		ProcDir:               "/proc",
 		MountInfo:             "/proc/self/mountinfo",
