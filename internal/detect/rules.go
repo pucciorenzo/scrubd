@@ -21,6 +21,7 @@ func Detect(input Input) []Leak {
 	leaks = append(leaks, DetectStaleNetworkNamespaces(input.Host)...)
 	leaks = append(leaks, DetectAbandonedMounts(input)...)
 	leaks = append(leaks, DetectDanglingOverlaySnapshots(input)...)
+	leaks = append(leaks, DetectStaleRuntimeStates(input)...)
 	leaks = append(leaks, DetectStaleCgroups(input)...)
 	leaks = append(leaks, DetectOrphanRuntimeProcesses(input)...)
 	sortLeaks(leaks)

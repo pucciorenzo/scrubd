@@ -13,6 +13,7 @@ The tool is read-only by default. Cleanup actions are explicit, argv-based, dry-
   - named and process network namespaces
   - mountinfo entries
   - Docker and containerd overlay snapshots
+  - runtime task and bundle state directories
   - cgroups
   - relevant processes
 - Collect runtime inventory:
@@ -27,6 +28,7 @@ The tool is read-only by default. Cleanup actions are explicit, argv-based, dry-
   - stale named network namespaces
   - abandoned container mounts
   - dangling overlay snapshots
+  - stale runtime state directories
   - stale cgroups
   - orphaned runtime helper processes
 - Report output:
@@ -207,6 +209,7 @@ make docker-build IMAGE=scrubd:0.1.0
 - Stale bridge findings do not get direct cleanup commands because bridge ownership can come from runtime network metadata, CNI state, or host configuration.
 - Stale route findings do not get direct cleanup commands because route ownership can come from runtime network metadata, CNI state, or host configuration.
 - Stale CNI allocation findings do not get direct cleanup commands because CNI state can still be needed by runtime or plugin metadata.
+- Stale runtime state findings do not get direct cleanup commands because task and bundle directories can be tied to runtime metadata.
 - Dangling overlay snapshots currently do not get a direct `rm` cleanup plan because snapshot directories can back images or stopped containers. The report recommends runtime garbage collection or manual metadata review.
 
 ## Detection Rules
@@ -265,6 +268,12 @@ Function: `detect.DetectDanglingOverlaySnapshots`
 
 Flags recognized Docker/containerd overlay snapshot directories when their path matches runtime snapshot path segments, they are not mounted, and no known container ID appears in the snapshot path. Mount correlation uses path-boundary checks so sibling snapshot IDs such as `12` and `123` are not confused. Unknown snapshot runtimes are skipped. No destructive cleanup command is generated.
 
+### Stale Runtime State
+
+Function: `detect.DetectStaleRuntimeStates`
+
+Flags runtime task or bundle directories under paths such as `/run/docker/runtime-runc/moby`, `/run/docker/containerd/daemon/io.containerd.runtime.v2.task/moby`, `/run/containerd/io.containerd.runtime.v2.task`, and `/run/podman` when every selected runtime inventory is available and the state directory ID is not correlated with a known runtime container. No destructive cleanup command is generated because stale runtime state should be reviewed with runtime metadata first.
+
 ### Stale Cgroups
 
 Function: `detect.DetectStaleCgroups`
@@ -308,6 +317,7 @@ internal/inspect/
   namespace.go         network namespace inspection
   mounts.go            mountinfo parsing
   snapshots.go         Docker/containerd overlay snapshot inspection
+  runtime_state.go     runtime task and bundle state inspection
   cgroups.go           cgroup parsing
   processes.go         process inspection
 
@@ -364,6 +374,7 @@ internal/cleanup/
 - `inspect.Collector.NetworkNamespaces`: reads named and process network namespaces.
 - `inspect.Collector.Mounts`: reads and parses `/proc/self/mountinfo`.
 - `inspect.Collector.Snapshots`: reads Docker and containerd overlay snapshot directories.
+- `inspect.Collector.RuntimeStates`: reads runtime task and bundle state directories.
 - `inspect.Collector.Cgroups`: scans runtime-looking cgroup directories under `/sys/fs/cgroup`, falling back to `/proc/self/cgroup` when the cgroup root is unavailable.
 - `inspect.Collector.Processes`: reads process command names and argv from `/proc`.
 
@@ -377,6 +388,7 @@ internal/cleanup/
 - `detect.DetectStaleNetworkNamespaces`: finds named netns entries without process inode matches.
 - `detect.DetectAbandonedMounts`: finds runtime mounts without known container references.
 - `detect.DetectDanglingOverlaySnapshots`: finds unmounted overlay snapshots without known container references.
+- `detect.DetectStaleRuntimeStates`: finds runtime state directories without known container references.
 - `detect.DetectStaleCgroups`: finds runtime-looking cgroups without known container references.
 - `detect.DetectOrphanRuntimeProcesses`: finds runtime helper processes without known container references.
 - `detect.NewLeak`: creates a leak and assigns a stable ID.
