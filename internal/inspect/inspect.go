@@ -1,16 +1,22 @@
 package inspect
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"os/exec"
 	"runtime"
+	"strings"
+	"time"
 )
 
 type Collector struct {
-	paths Paths
+	paths      Paths
+	runCommand commandRunner
 }
 
 func NewCollector(paths Paths) Collector {
-	return Collector{paths: paths}
+	return Collector{paths: paths, runCommand: defaultCommandRunner}
 }
 
 func NewDefaultCollector() Collector {
@@ -44,6 +50,10 @@ func (c Collector) inventory(goos string) Inventory {
 	inv.Routes = routes
 	addWarnings(warnings)
 
+	firewallRules, warnings := c.FirewallRules()
+	inv.FirewallRules = firewallRules
+	addWarnings(warnings)
+
 	allocations, warnings := c.CNIAllocations()
 	inv.CNIAllocations = allocations
 	addWarnings(warnings)
@@ -73,4 +83,23 @@ func (c Collector) inventory(goos string) Inventory {
 	addWarnings(warnings)
 
 	return inv
+}
+
+type commandRunner func(name string, args ...string) ([]byte, error)
+
+func defaultCommandRunner(name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	output, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	if errors.Is(err, exec.ErrNotFound) {
+		return nil, err
+	}
+	if ctx.Err() != nil {
+		return output, ctx.Err()
+	}
+	if err != nil && len(output) > 0 {
+		return output, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	return output, err
 }

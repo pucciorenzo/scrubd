@@ -3,6 +3,7 @@ package inspect
 type Inventory struct {
 	NetworkInterfaces []NetworkInterface `json:"network_interfaces"`
 	Routes            []Route            `json:"routes"`
+	FirewallRules     []FirewallRule     `json:"firewall_rules"`
 	CNIAllocations    []CNIAllocation    `json:"cni_allocations"`
 	NetworkNamespaces []NetworkNamespace `json:"network_namespaces"`
 	Mounts            []Mount            `json:"mounts"`
@@ -31,6 +32,15 @@ type Route struct {
 	Flags       string `json:"flags,omitempty"`
 	Mask        string `json:"mask,omitempty"`
 	Source      string `json:"source"`
+}
+
+type FirewallRule struct {
+	Backend       string   `json:"backend"`
+	Table         string   `json:"table,omitempty"`
+	Chain         string   `json:"chain,omitempty"`
+	Raw           string   `json:"raw"`
+	InterfaceRefs []string `json:"interface_refs,omitempty"`
+	Source        string   `json:"source"`
 }
 
 type CNIAllocation struct {
@@ -91,6 +101,8 @@ type Process struct {
 type Paths struct {
 	NetClassDir           string
 	ProcNetRoute          string
+	IPTablesSaveCommand   string
+	NFTCommand            string
 	CNIStateDir           string
 	NetNSDir              string
 	ProcDir               string
@@ -113,6 +125,8 @@ func DefaultPaths() Paths {
 	return Paths{
 		NetClassDir:           "/sys/class/net",
 		ProcNetRoute:          "/proc/net/route",
+		IPTablesSaveCommand:   "iptables-save",
+		NFTCommand:            "nft",
 		CNIStateDir:           "/var/lib/cni/networks",
 		NetNSDir:              "/var/run/netns",
 		ProcDir:               "/proc",

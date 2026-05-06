@@ -9,6 +9,7 @@ The tool is read-only by default. Cleanup actions are explicit, argv-based, dry-
 - Inspect host resources:
   - network interfaces
   - IPv4 route table entries
+  - iptables/nftables firewall rules
   - CNI IPAM allocation files
   - named and process network namespaces
   - mountinfo entries
@@ -24,6 +25,7 @@ The tool is read-only by default. Cleanup actions are explicit, argv-based, dry-
   - orphaned veth interfaces
   - stale runtime-looking network bridges
   - stale runtime-looking network routes
+  - stale firewall rules
   - stale CNI IPAM allocations
   - stale named network namespaces
   - abandoned container mounts
@@ -208,6 +210,7 @@ make docker-build IMAGE=scrubd:0.1.0
 - `cleanup <leak-id> --force` executes cleanup steps through `exec.Command`, not a shell.
 - Stale bridge findings do not get direct cleanup commands because bridge ownership can come from runtime network metadata, CNI state, or host configuration.
 - Stale route findings do not get direct cleanup commands because route ownership can come from runtime network metadata, CNI state, or host configuration.
+- Stale firewall rule findings do not get direct cleanup commands because firewall rule ownership and ordering can affect live container, pod, or host traffic.
 - Stale CNI allocation findings do not get direct cleanup commands because CNI state can still be needed by runtime or plugin metadata.
 - Stale runtime state findings do not get direct cleanup commands because task and bundle directories can be tied to runtime metadata.
 - Dangling overlay snapshots currently do not get a direct `rm` cleanup plan because snapshot directories can back images or stopped containers. The report recommends runtime garbage collection or manual metadata review.
@@ -245,6 +248,12 @@ Flags generated-looking runtime bridge names such as `br-*`, `cni*`, and `podman
 Function: `detect.DetectStaleRoutes`
 
 Flags IPv4 route table entries from `/proc/net/route` when the route references a generated-looking runtime interface such as `br-*`, `cni*`, or `podman*` that is no longer present in host interface inventory. Default bridges such as `docker0`, `cni0`, and `podman0` are skipped. No destructive cleanup command is generated because route ownership can come from runtime network metadata, CNI state, or host configuration.
+
+### Stale Firewall Rules
+
+Function: `detect.DetectStaleFirewallRules`
+
+Flags iptables and nftables rules when they explicitly reference a generated-looking runtime interface such as `br-*`, `cni*`, or `podman*` that is no longer present in host interface inventory. Wildcard interface matches such as `br-abcd+` are considered present when any current interface has the same prefix. Default bridges such as `docker0`, `cni0`, and `podman0` are skipped. No destructive cleanup command is generated because firewall rule cleanup is order-sensitive and can disrupt host or workload networking.
 
 ### Stale CNI Allocations
 
@@ -313,6 +322,7 @@ internal/inspect/
   inspect.go           host inventory orchestration
   network.go           network interface inspection
   routes.go            IPv4 route table inspection
+  firewall.go          iptables/nftables rule inspection
   cni.go               CNI IPAM allocation inspection
   namespace.go         network namespace inspection
   mounts.go            mountinfo parsing
@@ -370,6 +380,7 @@ internal/cleanup/
 - `inspect.Collector.Inventory`: collects all host inventory sections.
 - `inspect.Collector.NetworkInterfaces`: lists interfaces and classifies interface kind.
 - `inspect.Collector.Routes`: reads IPv4 routes from `/proc/net/route`.
+- `inspect.Collector.FirewallRules`: reads iptables-save and nftables ruleset output.
 - `inspect.Collector.CNIAllocations`: reads CNI IPAM allocation files under `/var/lib/cni/networks`.
 - `inspect.Collector.NetworkNamespaces`: reads named and process network namespaces.
 - `inspect.Collector.Mounts`: reads and parses `/proc/self/mountinfo`.
@@ -384,6 +395,7 @@ internal/cleanup/
 - `detect.DetectOrphanVeth`: finds orphaned veth interfaces.
 - `detect.DetectStaleNetworkBridges`: finds runtime-looking bridges without attached ports or running containers.
 - `detect.DetectStaleRoutes`: finds routes pointing at missing runtime-looking interfaces.
+- `detect.DetectStaleFirewallRules`: finds firewall rules pointing at missing runtime-looking interfaces.
 - `detect.DetectStaleCNIAllocations`: finds CNI IPAM allocations without known container references.
 - `detect.DetectStaleNetworkNamespaces`: finds named netns entries without process inode matches.
 - `detect.DetectAbandonedMounts`: finds runtime mounts without known container references.
