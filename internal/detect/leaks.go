@@ -16,6 +16,7 @@ const (
 	LeakTypeRoute           LeakType = "stale_network_route"
 	LeakTypeFirewallRule    LeakType = "stale_firewall_rule"
 	LeakTypeCNIAllocation   LeakType = "stale_cni_allocation"
+	LeakTypeCNIStateFile    LeakType = "stale_cni_state_file"
 	LeakTypeNetworkNS       LeakType = "stale_network_namespace"
 	LeakTypeOverlaySnapshot LeakType = "dangling_overlay_snapshot"
 	LeakTypeRuntimeState    LeakType = "stale_runtime_state"

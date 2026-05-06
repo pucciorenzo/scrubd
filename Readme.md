@@ -11,6 +11,7 @@ The tool is read-only by default. Cleanup actions are explicit, argv-based, dry-
   - IPv4 route table entries
   - iptables/nftables firewall rules
   - CNI IPAM allocation files
+  - CNI result/cache state files
   - named and process network namespaces
   - mountinfo entries
   - Docker and containerd overlay snapshots
@@ -27,6 +28,7 @@ The tool is read-only by default. Cleanup actions are explicit, argv-based, dry-
   - stale runtime-looking network routes
   - stale firewall rules
   - stale CNI IPAM allocations
+  - stale CNI state files
   - stale named network namespaces
   - abandoned container mounts
   - dangling overlay snapshots
@@ -212,6 +214,7 @@ make docker-build IMAGE=scrubd:0.1.0
 - Stale route findings do not get direct cleanup commands because route ownership can come from runtime network metadata, CNI state, or host configuration.
 - Stale firewall rule findings do not get direct cleanup commands because firewall rule ownership and ordering can affect live container, pod, or host traffic.
 - Stale CNI allocation findings do not get direct cleanup commands because CNI state can still be needed by runtime or plugin metadata.
+- Stale CNI state file findings do not get direct cleanup commands because CNI cache files can still be needed by runtime or plugin metadata.
 - Stale runtime state findings do not get direct cleanup commands because task and bundle directories can be tied to runtime metadata.
 - Dangling overlay snapshots currently do not get a direct `rm` cleanup plan because snapshot directories can back images or stopped containers. The report recommends runtime garbage collection or manual metadata review.
 
@@ -260,6 +263,12 @@ Flags iptables and nftables rules when they explicitly reference a generated-loo
 Function: `detect.DetectStaleCNIAllocations`
 
 Flags CNI IPAM allocation files under `/var/lib/cni/networks/<network>/<ip>` when every selected runtime inventory is available and the allocation's container ID is not correlated with a known runtime container. Metadata files such as `last_reserved_ip` are skipped. No destructive cleanup command is generated because stale CNI state should be reviewed against runtime and plugin metadata first.
+
+### Stale CNI State Files
+
+Function: `detect.DetectStaleCNIStateFiles`
+
+Flags CNI result/cache files under paths such as `/var/lib/cni/results` and `/var/run/cni/results` when every selected runtime inventory is available and the cached container ID is not correlated with a known runtime container. Files without a container ID are skipped. No destructive cleanup command is generated because stale CNI cache state should be reviewed against runtime and plugin metadata first.
 
 ### Abandoned Container Mounts
 
@@ -323,7 +332,7 @@ internal/inspect/
   network.go           network interface inspection
   routes.go            IPv4 route table inspection
   firewall.go          iptables/nftables rule inspection
-  cni.go               CNI IPAM allocation inspection
+  cni.go               CNI IPAM allocation and result/cache state inspection
   namespace.go         network namespace inspection
   mounts.go            mountinfo parsing
   snapshots.go         Docker/containerd overlay snapshot inspection
@@ -382,6 +391,7 @@ internal/cleanup/
 - `inspect.Collector.Routes`: reads IPv4 routes from `/proc/net/route`.
 - `inspect.Collector.FirewallRules`: reads iptables-save and nftables ruleset output.
 - `inspect.Collector.CNIAllocations`: reads CNI IPAM allocation files under `/var/lib/cni/networks`.
+- `inspect.Collector.CNIStateFiles`: reads CNI result/cache files under configured CNI result directories.
 - `inspect.Collector.NetworkNamespaces`: reads named and process network namespaces.
 - `inspect.Collector.Mounts`: reads and parses `/proc/self/mountinfo`.
 - `inspect.Collector.Snapshots`: reads Docker and containerd overlay snapshot directories.
@@ -397,6 +407,7 @@ internal/cleanup/
 - `detect.DetectStaleRoutes`: finds routes pointing at missing runtime-looking interfaces.
 - `detect.DetectStaleFirewallRules`: finds firewall rules pointing at missing runtime-looking interfaces.
 - `detect.DetectStaleCNIAllocations`: finds CNI IPAM allocations without known container references.
+- `detect.DetectStaleCNIStateFiles`: finds CNI state files without known container references.
 - `detect.DetectStaleNetworkNamespaces`: finds named netns entries without process inode matches.
 - `detect.DetectAbandonedMounts`: finds runtime mounts without known container references.
 - `detect.DetectDanglingOverlaySnapshots`: finds unmounted overlay snapshots without known container references.

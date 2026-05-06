@@ -58,6 +58,10 @@ func (c Collector) inventory(goos string) Inventory {
 	inv.CNIAllocations = allocations
 	addWarnings(warnings)
 
+	cniStateFiles, warnings := c.CNIStateFiles()
+	inv.CNIStateFiles = cniStateFiles
+	addWarnings(warnings)
+
 	namespaces, warnings := c.NetworkNamespaces()
 	inv.NetworkNamespaces = namespaces
 	addWarnings(warnings)
