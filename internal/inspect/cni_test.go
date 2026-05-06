@@ -41,3 +41,46 @@ func TestReadCNIAllocationsMissingRoot(t *testing.T) {
 		t.Fatalf("allocations = %#v, want nil", allocations)
 	}
 }
+
+func TestReadCNIStateFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "stale"), []byte(`{
+		"kind": "cniCacheV1",
+		"containerId": "abcdef1234567890",
+		"networkName": "mynet"
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "metadata"), []byte(`{"kind":"metadata"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := readCNIStateFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("len(files) = %d, want 1", len(files))
+	}
+	got := files[0]
+	if got.Kind != "cniCacheV1" || got.Network != "mynet" || got.ContainerID != "abcdef1234567890" || got.Source != "cni_result_cache" {
+		t.Fatalf("unexpected state file: %#v", got)
+	}
+}
+
+func TestReadCNIStateFilesMissingRoot(t *testing.T) {
+	files, err := readCNIStateFiles(filepath.Join(t.TempDir(), "missing"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files != nil {
+		t.Fatalf("files = %#v, want nil", files)
+	}
+}
+
+func TestParseCNIStateFileSkipsUnstructuredText(t *testing.T) {
+	state := parseCNIStateFile("/var/lib/cni/results/stale", []byte("container abcdef1234567890"))
+	if state.ContainerID != "" {
+		t.Fatalf("container id = %q, want empty for unstructured text", state.ContainerID)
+	}
+}

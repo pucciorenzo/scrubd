@@ -91,3 +91,83 @@ func TestDetectStaleCNIAllocationsSkipsIncompleteAllocation(t *testing.T) {
 		t.Fatalf("len(leaks) = %d, want 0 for incomplete allocation: %#v", len(leaks), leaks)
 	}
 }
+
+func TestDetectStaleCNIStateFiles(t *testing.T) {
+	input := Input{
+		Host: inspect.Inventory{CNIStateFiles: []inspect.CNIStateFile{{
+			Kind:        "cniCacheV1",
+			Network:     "mynet",
+			Path:        "/var/lib/cni/results/stale",
+			ContainerID: "abcdef1234567890",
+			Source:      "cni_result_cache",
+		}}},
+		Runtimes: availableRuntimeInventory(),
+	}
+
+	leaks := DetectStaleCNIStateFiles(input)
+	if len(leaks) != 1 {
+		t.Fatalf("len(leaks) = %d, want 1", len(leaks))
+	}
+	if leaks[0].Type != LeakTypeCNIStateFile || leaks[0].Resource != "/var/lib/cni/results/stale" {
+		t.Fatalf("unexpected leak: %#v", leaks[0])
+	}
+	if len(leaks[0].CleanupPlan) != 0 {
+		t.Fatalf("cleanup plan = %#v, want none for CNI state file", leaks[0].CleanupPlan)
+	}
+}
+
+func TestDetectStaleCNIStateFilesSkipsKnownContainer(t *testing.T) {
+	input := Input{
+		Host: inspect.Inventory{CNIStateFiles: []inspect.CNIStateFile{{
+			Kind:        "cniCacheV1",
+			Network:     "mynet",
+			Path:        "/var/lib/cni/results/active",
+			ContainerID: "abcdef1234567890",
+			Source:      "cni_result_cache",
+		}}},
+		Runtimes: []runtimeinv.Inventory{{
+			Runtime:   runtimeinv.NameDocker,
+			Available: true,
+			Containers: []runtimeinv.Container{{
+				ID:    "abcdef1234567890",
+				State: "running",
+			}},
+		}},
+	}
+
+	if leaks := DetectStaleCNIStateFiles(input); len(leaks) != 0 {
+		t.Fatalf("len(leaks) = %d, want 0 for known container: %#v", len(leaks), leaks)
+	}
+}
+
+func TestDetectStaleCNIStateFilesSkipsIncompleteRuntimeInventory(t *testing.T) {
+	input := Input{
+		Host: inspect.Inventory{CNIStateFiles: []inspect.CNIStateFile{{
+			Kind:        "cniCacheV1",
+			Network:     "mynet",
+			Path:        "/var/lib/cni/results/stale",
+			ContainerID: "abcdef1234567890",
+			Source:      "cni_result_cache",
+		}}},
+		Runtimes: []runtimeinv.Inventory{{Runtime: runtimeinv.NameDocker}},
+	}
+
+	if leaks := DetectStaleCNIStateFiles(input); len(leaks) != 0 {
+		t.Fatalf("len(leaks) = %d, want 0 for incomplete runtime inventory: %#v", len(leaks), leaks)
+	}
+}
+
+func TestDetectStaleCNIStateFilesSkipsIncompleteStateFile(t *testing.T) {
+	input := Input{
+		Host: inspect.Inventory{CNIStateFiles: []inspect.CNIStateFile{{
+			Kind:   "cniCacheV1",
+			Path:   "/var/lib/cni/results/metadata",
+			Source: "cni_result_cache",
+		}}},
+		Runtimes: availableRuntimeInventory(),
+	}
+
+	if leaks := DetectStaleCNIStateFiles(input); len(leaks) != 0 {
+		t.Fatalf("len(leaks) = %d, want 0 for incomplete state file: %#v", len(leaks), leaks)
+	}
+}

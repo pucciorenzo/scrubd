@@ -5,6 +5,7 @@ type Inventory struct {
 	Routes            []Route            `json:"routes"`
 	FirewallRules     []FirewallRule     `json:"firewall_rules"`
 	CNIAllocations    []CNIAllocation    `json:"cni_allocations"`
+	CNIStateFiles     []CNIStateFile     `json:"cni_state_files"`
 	NetworkNamespaces []NetworkNamespace `json:"network_namespaces"`
 	Mounts            []Mount            `json:"mounts"`
 	Snapshots         []Snapshot         `json:"snapshots"`
@@ -48,6 +49,14 @@ type CNIAllocation struct {
 	IP          string `json:"ip"`
 	Path        string `json:"path"`
 	ContainerID string `json:"container_id,omitempty"`
+	Source      string `json:"source"`
+}
+
+type CNIStateFile struct {
+	Kind        string `json:"kind"`
+	Network     string `json:"network,omitempty"`
+	ContainerID string `json:"container_id,omitempty"`
+	Path        string `json:"path"`
 	Source      string `json:"source"`
 }
 
@@ -104,6 +113,7 @@ type Paths struct {
 	IPTablesSaveCommand   string
 	NFTCommand            string
 	CNIStateDir           string
+	CNIResultDirs         []string
 	NetNSDir              string
 	ProcDir               string
 	MountInfo             string
@@ -128,6 +138,7 @@ func DefaultPaths() Paths {
 		IPTablesSaveCommand:   "iptables-save",
 		NFTCommand:            "nft",
 		CNIStateDir:           "/var/lib/cni/networks",
+		CNIResultDirs:         []string{"/var/lib/cni/results", "/var/run/cni/results"},
 		NetNSDir:              "/var/run/netns",
 		ProcDir:               "/proc",
 		MountInfo:             "/proc/self/mountinfo",
