@@ -60,6 +60,10 @@ func (c Collector) inventory(goos string) Inventory {
 	inv.Snapshots = snapshots
 	addWarnings(warnings)
 
+	states, warnings := c.RuntimeStates()
+	inv.RuntimeStates = states
+	addWarnings(warnings)
+
 	cgroups, warnings := c.Cgroups()
 	inv.Cgroups = cgroups
 	addWarnings(warnings)

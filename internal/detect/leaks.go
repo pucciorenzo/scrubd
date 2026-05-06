@@ -17,6 +17,7 @@ const (
 	LeakTypeCNIAllocation   LeakType = "stale_cni_allocation"
 	LeakTypeNetworkNS       LeakType = "stale_network_namespace"
 	LeakTypeOverlaySnapshot LeakType = "dangling_overlay_snapshot"
+	LeakTypeRuntimeState    LeakType = "stale_runtime_state"
 	LeakTypeMount           LeakType = "abandoned_container_mount"
 	LeakTypeCgroup          LeakType = "stale_cgroup"
 	LeakTypeRuntimeProcess  LeakType = "orphaned_runtime_process"

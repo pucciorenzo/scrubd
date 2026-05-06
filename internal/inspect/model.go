@@ -7,6 +7,7 @@ type Inventory struct {
 	NetworkNamespaces []NetworkNamespace `json:"network_namespaces"`
 	Mounts            []Mount            `json:"mounts"`
 	Snapshots         []Snapshot         `json:"snapshots"`
+	RuntimeStates     []RuntimeState     `json:"runtime_states"`
 	Cgroups           []Cgroup           `json:"cgroups"`
 	Processes         []Process          `json:"processes"`
 	Warnings          []string           `json:"warnings,omitempty"`
@@ -65,6 +66,14 @@ type Snapshot struct {
 	Path    string `json:"path"`
 }
 
+type RuntimeState struct {
+	Runtime string `json:"runtime"`
+	Kind    string `json:"kind"`
+	ID      string `json:"id"`
+	Path    string `json:"path"`
+	Source  string `json:"source"`
+}
+
 type Cgroup struct {
 	HierarchyID       string   `json:"hierarchy_id"`
 	Controllers       []string `json:"controllers,omitempty"`
@@ -90,6 +99,14 @@ type Paths struct {
 	CgroupRoot            string
 	DockerOverlayDir      string
 	ContainerdSnapshotDir string
+	RuntimeStateRoots     []RuntimeStateRoot
+}
+
+type RuntimeStateRoot struct {
+	Runtime  string
+	Kind     string
+	Path     string
+	MaxDepth int
 }
 
 func DefaultPaths() Paths {
@@ -104,5 +121,11 @@ func DefaultPaths() Paths {
 		CgroupRoot:            "/sys/fs/cgroup",
 		DockerOverlayDir:      "/var/lib/docker/overlay2",
 		ContainerdSnapshotDir: "/var/lib/containerd/io.containerd.snapshotter.v1.overlayfs/snapshots",
+		RuntimeStateRoots: []RuntimeStateRoot{
+			{Runtime: "docker", Kind: "runc_bundle", Path: "/run/docker/runtime-runc/moby", MaxDepth: 1},
+			{Runtime: "docker", Kind: "containerd_task", Path: "/run/docker/containerd/daemon/io.containerd.runtime.v2.task/moby", MaxDepth: 1},
+			{Runtime: "containerd", Kind: "containerd_task", Path: "/run/containerd/io.containerd.runtime.v2.task", MaxDepth: 2},
+			{Runtime: "podman", Kind: "runtime_state", Path: "/run/podman", MaxDepth: 2},
+		},
 	}
 }
