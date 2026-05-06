@@ -17,6 +17,7 @@ func Detect(input Input) []Leak {
 	leaks = append(leaks, DetectOrphanVeth(input)...)
 	leaks = append(leaks, DetectStaleNetworkBridges(input)...)
 	leaks = append(leaks, DetectStaleRoutes(input)...)
+	leaks = append(leaks, DetectStaleFirewallRules(input)...)
 	leaks = append(leaks, DetectStaleCNIAllocations(input)...)
 	leaks = append(leaks, DetectStaleNetworkNamespaces(input.Host)...)
 	leaks = append(leaks, DetectAbandonedMounts(input)...)
